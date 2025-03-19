@@ -13,7 +13,11 @@ const { Pool } = require("pg");
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
+    ssl: {
+        rejectUnauthorized: false
+    }
 });
+
 
 // API lấy danh sách giao dịch
 app.get("/api/transactions", async (req, res) => {
