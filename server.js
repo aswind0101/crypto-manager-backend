@@ -37,7 +37,7 @@ async function sendEmail(subject, message) {
     try {
         let mailOptions = {
             from: process.env.SMTP_EMAIL,
-            to: "user@example.com", // Thay bằng email người nhận
+            to: "bichdung2108@gmail.com", // Thay bằng email người nhận
             subject: subject,
             text: message
         };
