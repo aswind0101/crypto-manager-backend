@@ -2,6 +2,9 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 
+const nodemailer = require("nodemailer");
+
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -18,6 +21,46 @@ const pool = new Pool({
     }
 });
 
+let lastProfitLoss = null; // Lưu giá trị lợi nhuận trước đó
+
+// Cấu hình Nodemailer với Gmail SMTP
+const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+        user: process.env.SMTP_EMAIL,
+        pass: process.env.SMTP_PASSWORD
+    }
+});
+
+// Hàm gửi email
+async function sendEmail(subject, message) {
+    try {
+        let mailOptions = {
+            from: process.env.SMTP_EMAIL,
+            to: "user@example.com", // Thay bằng email người nhận
+            subject: subject,
+            text: message
+        };
+
+        await transporter.sendMail(mailOptions);
+        console.log("✅ Email sent:", subject);
+    } catch (error) {
+        console.error("❌ Error sending email:", error);
+    }
+}
+
+// Hàm kiểm tra và gửi email khi lợi nhuận thay đổi >5%
+async function checkProfitChange(currentProfitLoss) {
+    if (lastProfitLoss !== null) {
+        let change = ((currentProfitLoss - lastProfitLoss) / Math.abs(lastProfitLoss)) * 100;
+        if (Math.abs(change) >= 5) {
+            let subject = `Crypto Alert: Profit Changed ${change.toFixed(2)}%`;
+            let message = `Your total profit/loss has changed by ${change.toFixed(2)}%. New total: ${currentProfitLoss}`;
+            await sendEmail(subject, message);
+        }
+    }
+    lastProfitLoss = currentProfitLoss;
+}
 
 // API lấy danh sách giao dịch
 app.get("/api/transactions", async (req, res) => {
@@ -150,6 +193,9 @@ app.get("/api/portfolio", async (req, res) => {
         // Tính tổng đầu tư & tổng lợi nhuận
         const totalInvested = portfolio.reduce((sum, coin) => sum + coin.total_invested, 0);
         const totalProfitLoss = portfolio.reduce((sum, coin) => sum + coin.profit_loss, 0);
+
+        // Kiểm tra nếu lợi nhuận thay đổi hơn 5%
+        await checkProfitChange(totalProfitLoss);
 
         res.json({ portfolio, totalInvested, totalProfitLoss });
     } catch (error) {
