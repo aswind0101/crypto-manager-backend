@@ -16,6 +16,7 @@ dotenv.config({ path: "./backend/.env" }); // hoặc ".env" nếu bạn dùng fi
 //const { Pool } = require("pg");
 //const verifyToken = require("./middleware/verifyToken");
 
+//Header
 const app = express();
 const PORT = process.env.PORT || 5000;
 
