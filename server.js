@@ -134,45 +134,60 @@ app.delete("/api/transactions/:id", verifyToken, async (req, res) => {
 
 // Get Coin Prices
 // ✅ Phiên bản backend - chính xác, không hardcode, đồng bộ với frontend
-// Get Coin Prices
+// Gọi CoinGecko bằng simple/price API + mapping symbol → id
 async function getCoinPrices(symbols = [], retryCount = 0) {
     try {
-        const response = await fetch("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&per_page=250&page=1");
-
-        if (!response.ok) {
-            const errorMessage = `❌ CoinGecko API error (${response.status}): ${response.statusText}`;
-            throw new Error(errorMessage);
+      // Lấy danh sách coin & map symbol → id
+      const coinListRes = await fetch("https://api.coingecko.com/api/v3/coins/list");
+      if (!coinListRes.ok) throw new Error("Failed to fetch coin list");
+  
+      const coinList = await coinListRes.json(); // [{ id, symbol, name }]
+      const symbolToIdMap = {};
+  
+      symbols.forEach((symbol) => {
+        const matches = coinList.filter(
+          (c) => c.symbol.toLowerCase() === symbol.toLowerCase()
+        );
+        if (matches.length > 0) {
+          // Ưu tiên id có tên gần giống symbol hoặc phổ biến
+          const selected = matches[0]; // đơn giản chọn cái đầu tiên
+          symbolToIdMap[symbol.toUpperCase()] = selected.id;
         }
-
-        const allMarkets = await response.json(); // [{ id, symbol, current_price, ... }]
-
-        const priceMap = {};
-        symbols.forEach(symbol => {
-            const matches = allMarkets.filter(c => c.symbol.toLowerCase() === symbol.toLowerCase());
-
-            if (matches.length > 0) {
-                const selected = matches.reduce((a, b) =>
-                    (a.market_cap || 0) > (b.market_cap || 0) ? a : b
-                );
-                priceMap[symbol.toUpperCase()] = selected.current_price;
-            }
-        });
-
-        return priceMap;
+      });
+  
+      const uniqueIds = [...new Set(Object.values(symbolToIdMap))];
+      if (uniqueIds.length === 0) return {};
+  
+      // Gọi CoinGecko simple/price với đúng id
+      const apiUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${uniqueIds.join(",")}&vs_currencies=usd`;
+      const priceRes = await fetch(apiUrl);
+  
+      if (!priceRes.ok) {
+        throw new Error(`CoinGecko API error (${priceRes.status}): ${priceRes.statusText}`);
+      }
+  
+      const priceData = await priceRes.json(); // { bitcoin: { usd: 123 }, ... }
+  
+      // Map lại symbol → price
+      const result = {};
+      for (const [symbol, id] of Object.entries(symbolToIdMap)) {
+        result[symbol] = priceData[id]?.usd || 0;
+      }
+  
+      return result;
     } catch (error) {
-        console.error(`⚠️ getCoinPrices error [Attempt ${retryCount + 1}]:`, error.message || error);
-
-        if (retryCount < 2) {
-            const waitTime = 1000 * (retryCount + 1); // exponential backoff: 1s, 2s
-            await new Promise(resolve => setTimeout(resolve, waitTime));
-            return getCoinPrices(symbols, retryCount + 1);
-        }
-
-        return {}; // fallback: empty map
+      console.error(`⚠️ getCoinPrices error [Attempt ${retryCount + 1}]:`, error.message || error);
+  
+      if (retryCount < 2) {
+        const waitTime = 1000 * (retryCount + 1); // exponential backoff: 1s, 2s
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
+        return getCoinPrices(symbols, retryCount + 1);
+      }
+  
+      return {}; // fallback
     }
-}
-
-
+  }
+  
 
 // Health check
 app.get("/", (req, res) => {
