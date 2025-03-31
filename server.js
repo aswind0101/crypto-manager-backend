@@ -46,6 +46,7 @@ app.get("/api/portfolio", verifyToken, async (req, res) => {
         );
 
         //const coinPrices = await getCoinPrices();Thay thế dòng này bằng:
+        const symbols = result.rows.map((coin) => coin.coin_symbol);
         const coinPrices = await getCoinPrices(symbols);
         const portfolio = result.rows.map((coin) => {
             const currentPrice = coinPrices[coin.coin_symbol.toUpperCase()] || 0;
