@@ -134,50 +134,43 @@ app.delete("/api/transactions/:id", verifyToken, async (req, res) => {
 
 // Get Coin Prices
 // ✅ Phiên bản backend - chính xác, không hardcode, đồng bộ với frontend
+// Get Coin Prices
 async function getCoinPrices(symbols = [], retryCount = 0) {
     try {
-        // Gọi danh sách coin 1 lần để map symbol → id
-        const listRes = await fetch("https://api.coingecko.com/api/v3/coins/list");
-        if (!listRes.ok) throw new Error("Failed to fetch coin list");
+        const response = await fetch("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&per_page=250&page=1");
 
-        const coinList = await listRes.json(); // [{ id, symbol, name }]
+        if (!response.ok) {
+            const errorMessage = `❌ CoinGecko API error (${response.status}): ${response.statusText}`;
+            throw new Error(errorMessage);
+        }
 
-        const symbolToId = {};
-        symbols.forEach(symbol => {
-            const match = coinList.find(c => c.symbol.toLowerCase() === symbol.toLowerCase());
-            if (match) {
-                symbolToId[symbol.toUpperCase()] = match.id;
-            }
-        });
-
-        const ids = Object.values(symbolToId);
-        if (ids.length === 0) return {};
-
-        const priceUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(",")}&vs_currencies=usd`;
-        const priceRes = await fetch(priceUrl);
-        if (!priceRes.ok) throw new Error(`CoinGecko API error (${priceRes.status}): ${priceRes.statusText}`);
-
-        const data = await priceRes.json(); // { bitcoin: { usd: 70000 }, ... }
+        const allMarkets = await response.json(); // [{ id, symbol, current_price, ... }]
 
         const priceMap = {};
-        for (const [symbol, id] of Object.entries(symbolToId)) {
-            priceMap[symbol] = data[id]?.usd || 0;
-        }
+        symbols.forEach(symbol => {
+            const matches = allMarkets.filter(c => c.symbol.toLowerCase() === symbol.toLowerCase());
+
+            if (matches.length > 0) {
+                const selected = matches.reduce((a, b) =>
+                    (a.market_cap || 0) > (b.market_cap || 0) ? a : b
+                );
+                priceMap[symbol.toUpperCase()] = selected.current_price;
+            }
+        });
 
         return priceMap;
     } catch (error) {
         console.error(`⚠️ getCoinPrices error [Attempt ${retryCount + 1}]:`, error.message || error);
 
         if (retryCount < 2) {
-            const waitTime = 1000 * (retryCount + 1); // Retry: 1s → 2s
+            const waitTime = 1000 * (retryCount + 1); // exponential backoff: 1s, 2s
             await new Promise(resolve => setTimeout(resolve, waitTime));
             return getCoinPrices(symbols, retryCount + 1);
         }
 
-        return {};
+        return {}; // fallback: empty map
     }
 }
-
 
 
 
