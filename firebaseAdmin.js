@@ -1,5 +1,5 @@
 import admin from "firebase-admin";
-import serviceAccount from "./firebase-service-account.json" with { type: "json" };
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
 
 
 if (!admin.apps.length) {
@@ -9,3 +9,4 @@ if (!admin.apps.length) {
 }
 
 export default admin;
+
