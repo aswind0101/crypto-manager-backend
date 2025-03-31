@@ -134,19 +134,23 @@ app.delete("/api/transactions/:id", verifyToken, async (req, res) => {
 
 // Get Coin Prices
 // ✅ Phiên bản backend - chính xác, không hardcode, đồng bộ với frontend
-async function getCoinPrices(symbols = []) {
+// Get Coin Prices
+async function getCoinPrices(symbols = [], retryCount = 0) {
     try {
-        const res = await fetch("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&per_page=250&page=1");
-        if (!res.ok) throw new Error("Failed to fetch coin market data");
+        const response = await fetch("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&per_page=250&page=1");
 
-        const allMarkets = await res.json(); // [{ id, symbol, current_price, ... }]
+        if (!response.ok) {
+            const errorMessage = `❌ CoinGecko API error (${response.status}): ${response.statusText}`;
+            throw new Error(errorMessage);
+        }
+
+        const allMarkets = await response.json(); // [{ id, symbol, current_price, ... }]
 
         const priceMap = {};
         symbols.forEach(symbol => {
             const matches = allMarkets.filter(c => c.symbol.toLowerCase() === symbol.toLowerCase());
 
             if (matches.length > 0) {
-                // Ưu tiên coin có market_cap lớn nhất
                 const selected = matches.reduce((a, b) =>
                     (a.market_cap || 0) > (b.market_cap || 0) ? a : b
                 );
@@ -156,8 +160,15 @@ async function getCoinPrices(symbols = []) {
 
         return priceMap;
     } catch (error) {
-        console.error("⚠️ getCoinPrices error (backend):", error);
-        return {};
+        console.error(`⚠️ getCoinPrices error [Attempt ${retryCount + 1}]:`, error.message || error);
+
+        if (retryCount < 2) {
+            const waitTime = 1000 * (retryCount + 1); // exponential backoff: 1s, 2s
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+            return getCoinPrices(symbols, retryCount + 1);
+        }
+
+        return {}; // fallback: empty map
     }
 }
 
