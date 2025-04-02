@@ -23,6 +23,11 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+import priceRoute from './routes/price.js';
+app.use("/api/price", priceRoute);
+
+
+
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
