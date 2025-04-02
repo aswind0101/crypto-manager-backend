@@ -2,6 +2,8 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import axios from "axios";
+
 
 import pkg from "pg";
 const { Pool } = pkg; // ✅ Chính xác
@@ -53,7 +55,11 @@ app.get("/api/portfolio", verifyToken, async (req, res) => {
 
         //const coinPrices = await getCoinPrices();Thay thế dòng này bằng:
         const symbols = result.rows.map((coin) => coin.coin_symbol);
-        const coinPrices = await getCoinPrices(symbols);
+        // Gọi nội bộ API backend để lấy giá từ price.js
+        const priceUrl = `${process.env.BACKEND_URL || "https://crypto-manager-backend.onrender.com"}/api/price?symbols=${symbols.join(",")}`;
+        const priceRes = await axios.get(priceUrl);
+        const coinPrices = priceRes.data; // { BTC: 72000, NEAR: 7.3, ... }
+
         const portfolio = result.rows.map((coin) => {
             const currentPrice = coinPrices[coin.coin_symbol.toUpperCase()] || 0;
             const currentValue = coin.total_quantity * currentPrice;
@@ -139,6 +145,7 @@ app.delete("/api/transactions/:id", verifyToken, async (req, res) => {
 
 // Get Coin Prices
 // ✅ Phiên bản backend - chính xác, không hardcode, đồng bộ với frontend
+/* Đã thay bằng routes/price
 async function getCoinPrices(symbols = []) {
     try {
         const res = await fetch("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&per_page=250&page=1");
@@ -165,7 +172,7 @@ async function getCoinPrices(symbols = []) {
         return {};
     }
 }
-
+*/
 
 
 // Health check
