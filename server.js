@@ -56,7 +56,9 @@ app.get("/api/portfolio", verifyToken, async (req, res) => {
         //const coinPrices = await getCoinPrices();Thay thế dòng này bằng:
         const symbols = result.rows.map((coin) => coin.coin_symbol);
         // Gọi nội bộ API backend để lấy giá từ price.js
-        const priceUrl = `${process.env.BACKEND_URL || "https://crypto-manager-backend.onrender.com"}/api/price?symbols=${symbols.join(",")}`;
+        //const priceUrl = `${process.env.BACKEND_URL || "https://crypto-manager-backend.onrender.com"}/api/price?symbols=${symbols.join(",")}`;
+        const priceUrl = `https://crypto-manager-backend.onrender.com/api/price?symbols=${symbols.join(",")}`;
+
         const priceRes = await axios.get(priceUrl);
         const coinPrices = priceRes.data; // { BTC: 72000, NEAR: 7.3, ... }
 
