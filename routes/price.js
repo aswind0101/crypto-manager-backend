@@ -6,18 +6,6 @@ const router = express.Router();
 const cache = new NodeCache({ stdTTL: 300 }); // cache giá 5 phút
 const COIN_LIST_KEY = "coinList";
 
-async function getPriceFromBinance(symbol) {
-    try {
-        const response = await fetch(`https://api.binance.us/api/v3/ticker/price?symbol=${symbol.toUpperCase()}USDT`);
-        if (!response.ok) throw new Error("Not found on Binance US");
-        const data = await response.json();
-        return parseFloat(data.price);
-    } catch (err) {
-        return null; // fallback sẽ xử lý tiếp
-    }
-}
-
-
 // Hàm lấy giá coin
 async function fetchCoinPrices(symbols) {
     // 1. Lấy coin list từ cache hoặc từ API
@@ -51,25 +39,19 @@ async function fetchCoinPrices(symbols) {
 
     // 4. Chọn coin tốt nhất cho mỗi symbol theo market cap
     const priceMap = {};
-
     for (const symbol of symbols) {
-        const binancePrice = await getPriceFromBinance(symbol);
-        if (binancePrice) {
-            priceMap[symbol.toUpperCase()] = binancePrice;
-            continue;
-        }
-
         const ids = symbolToIds[symbol.toUpperCase()];
         if (!ids || ids.length === 0) continue;
 
         const candidates = marketData.filter(c => ids.includes(c.id));
         if (candidates.length === 0) continue;
 
-        const best = candidates.reduce((a, b) =>
+        // Chọn coin có market_cap lớn nhất
+        const selected = candidates.reduce((a, b) =>
             (a.market_cap || 0) > (b.market_cap || 0) ? a : b
         );
 
-        priceMap[symbol.toUpperCase()] = best.current_price;
+        priceMap[symbol.toUpperCase()] = selected.current_price;
     }
 
     return priceMap;
