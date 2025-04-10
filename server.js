@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import axios from "axios";
+import coinListRoute from './routes/coinList.js';
 
 
 import pkg from "pg";
@@ -24,6 +25,7 @@ const PORT = process.env.PORT || 5000;
 
 app.use(cors());
 app.use(express.json());
+app.use("/api/coin-list", coinListRoute);
 
 import priceRoute from './routes/price.js';
 app.use("/api/price", priceRoute);
