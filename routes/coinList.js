@@ -13,9 +13,7 @@ const pool = new Pool({
 
 router.get("/", async (req, res) => {
     try {
-        const result = await pool.query(
-            "SELECT id, symbol, name FROM coin ORDER BY name ASC"
-        );
+        const result = await pool.query("SELECT id, symbol, name, updated_at FROM coins ORDER BY name ASC");
         res.json(result.rows); // [{ id, symbol, name }]
     } catch (err) {
         console.error("❌ Error fetching coinList:", err);
