@@ -11,7 +11,7 @@ async function fetchCoinPrices(symbols) {
     // 1. Lấy coin list từ cache hoặc từ API
     let coinList = cache.get(COIN_LIST_KEY);
     if (!coinList) {
-        const res = await fetch("https://crypto-manager-backend.onrender.com/api/coin-list");
+        const res = await fetch("https://api.coingecko.com/api/v3/coins/list");
         if (!res.ok) throw new Error("Failed to fetch coin list");
         coinList = await res.json();
         cache.set(COIN_LIST_KEY, coinList, 3600); // cache 1h
