@@ -224,7 +224,97 @@ app.post("/api/user-alerts/init", async (req, res) => {
         res.status(500).json({ error: "Failed to insert" });
     }
 });
+app.get("/api/check-profit-alerts", async (req, res) => {
+    try {
+        const { rows: users } = await pool.query(`
+        SELECT DISTINCT user_id FROM transactions
+      `);
 
+        const alertResults = [];
+
+        for (const user of users) {
+            const userId = user.user_id;
+
+            // Lấy portfolio
+            const result = await pool.query(
+                `SELECT 
+            coin_symbol, 
+            SUM(CASE WHEN transaction_type = 'buy' THEN quantity ELSE -quantity END) AS total_quantity,
+            SUM(CASE WHEN transaction_type = 'buy' THEN quantity * price ELSE 0 END) AS total_invested,
+            SUM(CASE WHEN transaction_type = 'sell' THEN quantity * price ELSE 0 END) AS total_sold
+          FROM transactions
+          WHERE user_id = $1
+          GROUP BY coin_symbol
+          ORDER BY total_invested DESC`,
+                [userId]
+            );
+
+            if (!result.rows || result.rows.length === 0) continue;
+
+            const symbols = result.rows.map(c => c.coin_symbol);
+            const priceUrl = `${process.env.BACKEND_URL || "http://localhost:5000"}/api/price?symbols=${symbols.join(",")}`;
+            const { data: coinPrices } = await axios.get(priceUrl);
+
+            const portfolio = result.rows.map((coin) => {
+                const currentPrice = coinPrices[coin.coin_symbol.toUpperCase()] || 0;
+                const currentValue = coin.total_quantity * currentPrice;
+                const profitLoss = currentValue - (coin.total_invested - coin.total_sold);
+
+                return {
+                    coin_symbol: coin.coin_symbol,
+                    total_quantity: parseFloat(coin.total_quantity),
+                    total_invested: parseFloat(coin.total_invested),
+                    total_sold: parseFloat(coin.total_sold),
+                    current_price: currentPrice,
+                    current_value: currentValue,
+                    profit_loss: profitLoss,
+                };
+            });
+
+            const totalProfitLoss = portfolio.reduce((sum, coin) => sum + coin.profit_loss, 0);
+
+            // Lấy dữ liệu alert
+            const { rows: alerts } = await pool.query(
+                "SELECT last_profit_loss, alert_threshold FROM user_alerts WHERE user_id = $1",
+                [userId]
+            );
+
+            const previous = alerts[0]?.last_profit_loss ?? 0;
+            const threshold = alerts[0]?.alert_threshold ?? 5;
+            const diff = Math.abs(totalProfitLoss - previous);
+            const percentChange = Math.abs(previous) > 0 ? (diff / Math.abs(previous)) * 100 : 100;
+
+            if (percentChange >= threshold) {
+                try {
+                    // ✅ Lấy email từ Firebase
+                    // ✅ Lấy email từ bảng user_alerts
+                    const emailQuery = await pool.query("SELECT email FROM user_alerts WHERE user_id = $1", [userId]);
+                    const toEmail = emailQuery.rows[0]?.email;
+
+                    if (toEmail) {
+                        await sendAlertEmail(toEmail, totalProfitLoss, percentChange.toFixed(1), portfolio);
+
+                        await pool.query(
+                            `INSERT INTO user_alerts (user_id, last_profit_loss)
+                 VALUES ($1, $2)
+                 ON CONFLICT (user_id) DO UPDATE SET last_profit_loss = EXCLUDED.last_profit_loss`,
+                            [userId, totalProfitLoss]
+                        );
+
+                        alertResults.push({ userId, email: toEmail, status: "sent" });
+                    }
+                } catch (err) {
+                    console.warn(`⚠️ Skipping user ${userId} – Firebase error:`, err.message);
+                }
+            }
+        }
+
+        res.json({ status: "done", alerts: alertResults });
+    } catch (err) {
+        console.error("❌ CRON alert error:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
 
 // Health check
 app.get("/", (req, res) => {
