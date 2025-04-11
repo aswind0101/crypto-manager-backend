@@ -1,15 +1,8 @@
-import nodemailer from "nodemailer";
+import { Resend } from 'resend';
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function sendAlertEmail(toEmail, newProfitLoss, changePercent, portfolio) {
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: process.env.ALERT_EMAIL_SENDER,
-      pass: process.env.ALERT_EMAIL_PASSWORD
-    }
-  });
-
-  // Format chi tiết coin lời/lỗ
   const coinDetails = portfolio
     .map(coin => {
       const profit = coin.profit_loss.toFixed(2);
@@ -18,22 +11,25 @@ export async function sendAlertEmail(toEmail, newProfitLoss, changePercent, port
     })
     .join("");
 
-  const mailOptions = {
-    from: `"Crypto Manager" <${process.env.ALERT_EMAIL_SENDER}>`,
-    to: toEmail,
-    subject: "📈 Crypto Manager Profit/Loss Alert",
-    html: `
-      <p>👋 Hello!</p>
-      <p>Your total profit/loss has changed by <strong>${changePercent}%</strong>.</p>
-      <p><strong>Total Profit/Loss:</strong> <span style="color:${newProfitLoss >= 0 ? 'green' : 'red'}">
-        ${newProfitLoss.toFixed(2)} USD</span></p>
-      <h3 style="margin-top: 20px;">📊 Portfolio Breakdown:</h3>
-      <ul style="padding-left: 20px; font-family: monospace; font-size: 14px;">
-        ${coinDetails}
-      </ul>
-      <p style="margin-top: 20px;">– Crypto Manager Bot 🤖</p>
-    `
-  };
+  const html = `
+    <h2>📈 Profit/Loss Alert</h2>
+    <p>Your profit/loss changed by <strong>${changePercent}%</strong>.</p>
+    <p><strong>Total:</strong> ${newProfitLoss.toFixed(2)} USD</p>
+    <h3>📊 Breakdown:</h3>
+    <ul>${coinDetails}</ul>
+    <p style="font-size: 12px; color: #666;">— Sent by Crypto Manager (resend.com)</p>
+  `;
 
-  await transporter.sendMail(mailOptions);
+  try {
+    const data = await resend.emails.send({
+      from: 'Crypto Manager <onboarding@resend.dev>',
+      to: toEmail,
+      subject: '📈 Profit/Loss Alert from Crypto Manager',
+      html
+    });
+
+    console.log("✅ Resend email sent:", data.id);
+  } catch (error) {
+    console.error("❌ Resend error:", error.message || error);
+  }
 }

@@ -84,6 +84,7 @@ app.get("/api/portfolio", verifyToken, async (req, res) => {
 
         const totalInvested = portfolio.reduce((sum, coin) => sum + coin.total_invested, 0);
         const totalProfitLoss = portfolio.reduce((sum, coin) => sum + coin.profit_loss, 0);
+        /*
         // === Check for alert ==================================================================
         const alertResult = await pool.query(
             "SELECT last_profit_loss, alert_threshold FROM user_alerts WHERE user_id = $1",
@@ -111,6 +112,7 @@ app.get("/api/portfolio", verifyToken, async (req, res) => {
         }
 
         // ======================================================================================
+        */
         res.json({ portfolio, totalInvested, totalProfitLoss });
     } catch (error) {
         console.error("Error fetching portfolio:", error);
