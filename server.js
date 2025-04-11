@@ -4,6 +4,8 @@ import cors from "cors";
 import dotenv from "dotenv";
 import axios from "axios";
 import coinListRoute from './routes/coinList.js';
+import { sendAlertEmail } from "./utils/sendAlertEmail.js";
+
 
 
 import pkg from "pg";
@@ -58,9 +60,9 @@ app.get("/api/portfolio", verifyToken, async (req, res) => {
         //const coinPrices = await getCoinPrices();Thay thế dòng này bằng:
         const symbols = result.rows.map((coin) => coin.coin_symbol);
         // Gọi nội bộ API backend để lấy giá từ price.js
-        //const priceUrl = `${process.env.BACKEND_URL || "https://crypto-manager-backend.onrender.com"}/api/price?symbols=${symbols.join(",")}`;
+        
         const priceUrl = `https://crypto-manager-backend.onrender.com/api/price?symbols=${symbols.join(",")}`;
-
+        //const priceUrl = `http://192.168.1.58:5000/api/price?symbols=${symbols.join(",")}`;
         const priceRes = await axios.get(priceUrl);
         const coinPrices = priceRes.data; // { BTC: 72000, NEAR: 7.3, ... }
 
@@ -82,7 +84,33 @@ app.get("/api/portfolio", verifyToken, async (req, res) => {
 
         const totalInvested = portfolio.reduce((sum, coin) => sum + coin.total_invested, 0);
         const totalProfitLoss = portfolio.reduce((sum, coin) => sum + coin.profit_loss, 0);
+        // === Check for alert ==================================================================
+        const alertResult = await pool.query(
+            "SELECT last_profit_loss, alert_threshold FROM user_alerts WHERE user_id = $1",
+            [userId]
+        );
 
+        const current = totalProfitLoss;
+        const previous = alertResult.rows[0]?.last_profit_loss || 0;
+        const threshold = alertResult.rows[0]?.alert_threshold || 5;
+
+        const diff = Math.abs(current - previous);
+        const percentChange = Math.abs(previous) > 0 ? (diff / Math.abs(previous)) * 100 : 100;
+
+        if (percentChange >= threshold) {
+            // 👇 Gửi email cảnh báo
+            await sendAlertEmail(req.user.email, current, percentChange.toFixed(1));
+
+            // 👇 Lưu lại giá trị mới
+            await pool.query(
+                `INSERT INTO user_alerts (user_id, last_profit_loss)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET last_profit_loss = EXCLUDED.last_profit_loss`,
+                [userId, current]
+            );
+        }
+
+        // ======================================================================================
         res.json({ portfolio, totalInvested, totalProfitLoss });
     } catch (error) {
         console.error("Error fetching portfolio:", error);
