@@ -252,7 +252,7 @@ app.get("/api/check-profit-alerts", async (req, res) => {
             if (!result.rows || result.rows.length === 0) continue;
 
             const symbols = result.rows.map(c => c.coin_symbol);
-            const priceUrl = `${process.env.BACKEND_URL || "http://localhost:5000"}/api/price?symbols=${symbols.join(",")}`;
+            const priceUrl = `https://crypto-manager-backend.onrender.com/api/price?symbols=${symbols.join(",")}`;
             const { data: coinPrices } = await axios.get(priceUrl);
 
             const portfolio = result.rows.map((coin) => {
