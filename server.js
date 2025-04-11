@@ -60,7 +60,7 @@ app.get("/api/portfolio", verifyToken, async (req, res) => {
         //const coinPrices = await getCoinPrices();Thay thế dòng này bằng:
         const symbols = result.rows.map((coin) => coin.coin_symbol);
         // Gọi nội bộ API backend để lấy giá từ price.js
-        
+
         const priceUrl = `https://crypto-manager-backend.onrender.com/api/price?symbols=${symbols.join(",")}`;
         //const priceUrl = `http://192.168.1.58:5000/api/price?symbols=${symbols.join(",")}`;
         const priceRes = await axios.get(priceUrl);
@@ -205,6 +205,25 @@ async function getCoinPrices(symbols = []) {
     }
 }
 */
+app.post("/api/user-alerts/init", async (req, res) => {
+    const { user_id, email } = req.body;
+
+    if (!user_id || !email) return res.status(400).json({ error: "Missing user_id or email" });
+
+    try {
+        await pool.query(
+            `INSERT INTO user_alerts (user_id, email, last_profit_loss)
+         VALUES ($1, $2, 0)
+         ON CONFLICT (user_id) DO NOTHING`,
+            [user_id, email]
+        );
+
+        res.json({ status: "created or already exists" });
+    } catch (err) {
+        console.error("Error inserting user_alerts:", err.message);
+        res.status(500).json({ error: "Failed to insert" });
+    }
+});
 
 
 // Health check
