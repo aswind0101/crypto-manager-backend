@@ -99,7 +99,7 @@ app.get("/api/portfolio", verifyToken, async (req, res) => {
 
         if (percentChange >= threshold) {
             // 👇 Gửi email cảnh báo
-            await sendAlertEmail(req.user.email, current, percentChange.toFixed(1));
+            await sendAlertEmail(req.user.email, current, percentChange.toFixed(1), portfolio);
 
             // 👇 Lưu lại giá trị mới
             await pool.query(
