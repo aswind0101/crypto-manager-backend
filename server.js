@@ -229,35 +229,44 @@ app.post("/api/user-alerts/init", async (req, res) => {
 app.get("/api/check-profit-alerts", async (req, res) => {
     try {
         const { rows: users } = await pool.query(`
-        SELECT DISTINCT user_id FROM transactions
-      `);
+            SELECT DISTINCT user_id FROM transactions
+        `);
 
         const alertResults = [];
 
         for (const user of users) {
             const userId = user.user_id;
 
-            // Lấy portfolio
             const result = await pool.query(
                 `SELECT 
-            coin_symbol, 
-            SUM(CASE WHEN transaction_type = 'buy' THEN quantity ELSE -quantity END) AS total_quantity,
-            SUM(CASE WHEN transaction_type = 'buy' THEN quantity * price ELSE 0 END) AS total_invested,
-            SUM(CASE WHEN transaction_type = 'sell' THEN quantity * price ELSE 0 END) AS total_sold
-          FROM transactions
-          WHERE user_id = $1
-          GROUP BY coin_symbol
-          ORDER BY total_invested DESC`,
+                    coin_symbol, 
+                    SUM(CASE WHEN transaction_type = 'buy' THEN quantity ELSE -quantity END) AS total_quantity,
+                    SUM(CASE WHEN transaction_type = 'buy' THEN quantity * price ELSE 0 END) AS total_invested,
+                    SUM(CASE WHEN transaction_type = 'sell' THEN quantity * price ELSE 0 END) AS total_sold
+                FROM transactions
+                WHERE user_id = $1
+                GROUP BY coin_symbol
+                ORDER BY total_invested DESC`,
                 [userId]
             );
 
-            if (!result.rows || result.rows.length === 0) continue;
+            const coinRows = result.rows.filter(r => parseFloat(r.total_quantity) > 0);
+            if (coinRows.length === 0) continue;
 
-            const symbols = result.rows.map(c => c.coin_symbol);
-            const priceUrl = `https://crypto-manager-backend.onrender.com/api/price?symbols=${symbols.join(",")}`;
-            const { data: coinPrices } = await axios.get(priceUrl);
+            const symbols = coinRows.map(c => c.coin_symbol);
+            if (symbols.length === 0) continue;
 
-            const portfolio = result.rows.map((coin) => {
+            let coinPrices = {};
+            try {
+                const priceUrl = `${process.env.BACKEND_URL || "https://crypto-manager-backend.onrender.com"}/api/price?symbols=${symbols.join(",")}`;
+                const { data } = await axios.get(priceUrl);
+                coinPrices = data;
+            } catch (err) {
+                console.error(`❌ Price fetch failed for user ${userId}:`, err.response?.data || err.message);
+                continue; // skip user if price fetch fails
+            }
+
+            const portfolio = coinRows.map((coin) => {
                 const currentPrice = coinPrices[coin.coin_symbol.toUpperCase()] || 0;
                 const currentValue = coin.total_quantity * currentPrice;
                 const profitLoss = currentValue - (coin.total_invested - coin.total_sold);
@@ -275,38 +284,32 @@ app.get("/api/check-profit-alerts", async (req, res) => {
 
             const totalProfitLoss = portfolio.reduce((sum, coin) => sum + coin.profit_loss, 0);
 
-            // Lấy dữ liệu alert
             const { rows: alerts } = await pool.query(
-                "SELECT last_profit_loss, alert_threshold FROM user_alerts WHERE user_id = $1",
+                "SELECT last_profit_loss, alert_threshold, email FROM user_alerts WHERE user_id = $1",
                 [userId]
             );
 
             const previous = alerts[0]?.last_profit_loss ?? 0;
             const threshold = alerts[0]?.alert_threshold ?? 5;
+            const toEmail = alerts[0]?.email;
+
             const diff = Math.abs(totalProfitLoss - previous);
             const percentChange = Math.abs(previous) > 0 ? (diff / Math.abs(previous)) * 100 : 100;
 
-            if (percentChange >= threshold) {
+            if (percentChange >= threshold && toEmail) {
                 try {
-                    // ✅ Lấy email từ Firebase
-                    // ✅ Lấy email từ bảng user_alerts
-                    const emailQuery = await pool.query("SELECT email FROM user_alerts WHERE user_id = $1", [userId]);
-                    const toEmail = emailQuery.rows[0]?.email;
+                    await sendAlertEmail(toEmail, totalProfitLoss, percentChange.toFixed(1), portfolio);
 
-                    if (toEmail) {
-                        await sendAlertEmail(toEmail, totalProfitLoss, percentChange.toFixed(1), portfolio);
+                    await pool.query(
+                        `INSERT INTO user_alerts (user_id, last_profit_loss)
+                        VALUES ($1, $2)
+                        ON CONFLICT (user_id) DO UPDATE SET last_profit_loss = EXCLUDED.last_profit_loss`,
+                        [userId, totalProfitLoss]
+                    );
 
-                        await pool.query(
-                            `INSERT INTO user_alerts (user_id, last_profit_loss)
-                 VALUES ($1, $2)
-                 ON CONFLICT (user_id) DO UPDATE SET last_profit_loss = EXCLUDED.last_profit_loss`,
-                            [userId, totalProfitLoss]
-                        );
-
-                        alertResults.push({ userId, email: toEmail, status: "sent" });
-                    }
+                    alertResults.push({ userId, email: toEmail, status: "sent" });
                 } catch (err) {
-                    console.warn(`⚠️ Skipping user ${userId} – Firebase error:`, err.message);
+                    console.warn(`⚠️ Skipping user ${userId} – email error:`, err.message);
                 }
             }
         }
