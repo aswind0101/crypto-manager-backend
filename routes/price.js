@@ -7,20 +7,42 @@ const cache = new NodeCache({ stdTTL: 300 }); // cache giá 5 phút
 const COIN_LIST_KEY = "coinList";
 
 // Hàm lấy giá coin
+// ====== Hàm mới: Ưu tiên lấy giá từ Binance US, fallback sang CoinGecko ======
 async function fetchCoinPrices(symbols) {
-    // 1. Lấy coin list từ cache hoặc từ API
+    const prices = {};
+    const unresolvedSymbols = [];
+
+    // 1. Ưu tiên gọi từ Binance US
+    for (const symbol of symbols) {
+        const binanceSymbol = symbol.toUpperCase() + "USDT";
+        try {
+            const res = await fetch(`https://api.binance.us/api/v3/ticker/price?symbol=${binanceSymbol}`);
+            if (res.ok) {
+                const data = await res.json();
+                prices[symbol.toUpperCase()] = parseFloat(data.price);
+            } else {
+                unresolvedSymbols.push(symbol);
+            }
+        } catch (err) {
+            console.warn(`⚠️ Binance API failed for ${symbol}:`, err.message);
+            unresolvedSymbols.push(symbol);
+        }
+    }
+
+    if (unresolvedSymbols.length === 0) return prices;
+
+    // 2. Nếu vẫn còn coin chưa lấy được giá → fallback sang CoinGecko
     let coinList = cache.get(COIN_LIST_KEY);
     if (!coinList) {
         const res = await fetch("https://api.coingecko.com/api/v3/coins/list");
         if (!res.ok) throw new Error("Failed to fetch coin list");
         coinList = await res.json();
-        cache.set(COIN_LIST_KEY, coinList, 3600); // cache 1h
+        cache.set(COIN_LIST_KEY, coinList, 3600);
     }
 
-    // 2. Tìm tất cả các ID khớp với symbol (không chọn luôn)
     const matchedIds = [];
     const symbolToIds = {};
-    symbols.forEach(symbol => {
+    unresolvedSymbols.forEach(symbol => {
         const matches = coinList.filter(c => c.symbol.toLowerCase() === symbol.toLowerCase());
         if (matches.length > 0) {
             const ids = matches.map(m => m.id);
@@ -29,33 +51,27 @@ async function fetchCoinPrices(symbols) {
         }
     });
 
-    if (matchedIds.length === 0) throw new Error("No valid CoinGecko IDs");
+    if (matchedIds.length > 0) {
+        const idsParam = matchedIds.join(",");
+        const res = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${idsParam}`);
+        if (res.ok) {
+            const marketData = await res.json();
+            for (const symbol of unresolvedSymbols) {
+                const ids = symbolToIds[symbol.toUpperCase()];
+                if (!ids || ids.length === 0) continue;
 
-    // 3. Gọi market data cho toàn bộ ID tìm được
-    const idsParam = matchedIds.join(",");
-    const res = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${idsParam}`);
-    if (!res.ok) throw new Error("Failed to fetch market data");
-    const marketData = await res.json(); // array
+                const candidates = marketData.filter(c => ids.includes(c.id));
+                if (candidates.length === 0) continue;
 
-    // 4. Chọn coin tốt nhất cho mỗi symbol theo market cap
-    const priceMap = {};
-    for (const symbol of symbols) {
-        const ids = symbolToIds[symbol.toUpperCase()];
-        if (!ids || ids.length === 0) continue;
-
-        const candidates = marketData.filter(c => ids.includes(c.id));
-        if (candidates.length === 0) continue;
-
-        // Chọn coin có market_cap lớn nhất
-        const selected = candidates.reduce((a, b) =>
-            (a.market_cap || 0) > (b.market_cap || 0) ? a : b
-        );
-
-        priceMap[symbol.toUpperCase()] = selected.current_price;
+                const selected = candidates.reduce((a, b) => (a.market_cap || 0) > (b.market_cap || 0) ? a : b);
+                prices[symbol.toUpperCase()] = selected.current_price;
+            }
+        }
     }
 
-    return priceMap;
+    return prices;
 }
+
 
 // Route: /api/price?symbols=BTC,NEAR
 router.get("/", async (req, res) => {
