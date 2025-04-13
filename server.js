@@ -371,6 +371,42 @@ app.get("/api/check-profit-alerts", async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+//lấy alert settings của user
+app.get("/api/user-alerts", verifyToken, async (req, res) => {
+    const userId = req.user.uid;
+    try {
+        const { rows } = await pool.query(
+            "SELECT email, alert_threshold FROM user_alerts WHERE user_id = $1",
+            [userId]
+        );
+        res.json(rows[0] || {});
+    } catch (err) {
+        console.error("Error fetching user alert settings:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+app.patch("/api/user-alerts", verifyToken, async (req, res) => {
+    const userId = req.user.uid;
+    const { alert_threshold } = req.body;
+
+    if (!alert_threshold || isNaN(alert_threshold)) {
+        return res.status(400).json({ error: "Invalid threshold" });
+    }
+
+    try {
+        await pool.query(
+            `INSERT INTO user_alerts (user_id, alert_threshold)
+             VALUES ($1, $2)
+             ON CONFLICT (user_id) DO UPDATE SET alert_threshold = EXCLUDED.alert_threshold`,
+            [userId, alert_threshold]
+        );
+        res.json({ status: "updated" });
+    } catch (err) {
+        console.error("Error updating alert threshold:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
 
 // Health check
 app.get("/", (req, res) => {
