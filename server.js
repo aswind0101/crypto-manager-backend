@@ -59,6 +59,21 @@ app.get("/api/portfolio", verifyToken, async (req, res) => {
 
         //const coinPrices = await getCoinPrices();Thay thế dòng này bằng:
         const symbols = result.rows.map((coin) => coin.coin_symbol);
+        // 1. Lấy thời gian reset gần nhất cho từng coin
+        const resetDateResult = await pool.query(
+            `SELECT coin_symbol, MAX(transaction_date) AS reset_date
+     FROM transactions
+     WHERE user_id = $1 AND is_reset_point = true AND coin_symbol = ANY($2)
+     GROUP BY coin_symbol`,
+            [userId, symbols]
+        );
+
+        // Tạo map resetDate
+        const resetDates = {};
+        resetDateResult.rows.forEach(row => {
+            resetDates[row.coin_symbol] = row.reset_date;
+        });
+
         // Gọi nội bộ API backend để lấy giá từ price.js
 
         const priceUrl = `https://crypto-manager-backend.onrender.com/api/price?symbols=${symbols.join(",")}`;
@@ -66,21 +81,39 @@ app.get("/api/portfolio", verifyToken, async (req, res) => {
         const priceRes = await axios.get(priceUrl);
         const coinPrices = priceRes.data; // { BTC: 72000, NEAR: 7.3, ... }
 
-        const portfolio = result.rows.map((coin) => {
-            const currentPrice = coinPrices[coin.coin_symbol.toUpperCase()] || 0;
-            const currentValue = coin.total_quantity * currentPrice;
-            const profitLoss = currentValue - (coin.total_invested - coin.total_sold);
+        const portfolio = [];
 
-            return {
-                coin_symbol: coin.coin_symbol,
-                total_quantity: parseFloat(coin.total_quantity),
-                total_invested: parseFloat(coin.total_invested),
-                total_sold: parseFloat(coin.total_sold),
-                current_price: currentPrice,
-                current_value: currentValue,
-                profit_loss: profitLoss,
-            };
-        });
+        for (const symbol of symbols) {
+            const resetDate = resetDates[symbol] || '1970-01-01';
+
+            const { rows } = await pool.query(
+                `SELECT 
+        SUM(CASE WHEN transaction_type = 'buy' THEN quantity ELSE -quantity END) AS total_quantity,
+        SUM(CASE WHEN transaction_type = 'buy' THEN quantity * price ELSE 0 END) AS total_invested,
+        SUM(CASE WHEN transaction_type = 'sell' THEN quantity * price ELSE 0 END) AS total_sold
+     FROM transactions
+     WHERE user_id = $1 AND coin_symbol = $2 AND transaction_date >= $3`,
+                [userId, symbol, resetDate]
+            );
+
+            const total_quantity = parseFloat(rows[0].total_quantity || 0);
+            const total_invested = parseFloat(rows[0].total_invested || 0);
+            const total_sold = parseFloat(rows[0].total_sold || 0);
+            const current_price = coinPrices[symbol.toUpperCase()] || 0;
+            const current_value = total_quantity * current_price;
+            const profit_loss = current_value - (total_invested - total_sold);
+
+            portfolio.push({
+                coin_symbol: symbol,
+                total_quantity,
+                total_invested,
+                total_sold,
+                current_price,
+                current_value,
+                profit_loss,
+            });
+        }
+
 
         const totalInvested = portfolio.reduce((sum, coin) => sum + coin.total_invested, 0);
         const totalProfitLoss = portfolio.reduce((sum, coin) => sum + coin.profit_loss, 0);
@@ -139,16 +172,35 @@ app.post("/api/transactions", verifyToken, async (req, res) => {
     const userId = req.user.uid;
     const { coin_symbol, quantity, price, transaction_type } = req.body;
 
+    // 1. Lấy tổng số coin hiện có
+    const result = await pool.query(
+        `SELECT 
+      COALESCE(SUM(CASE WHEN transaction_type = 'buy' THEN quantity ELSE -quantity END), 0) AS balance
+     FROM transactions
+     WHERE user_id = $1 AND coin_symbol = $2`,
+        [userId, coin_symbol]
+    );
+
+    const currentBalance = parseFloat(result.rows[0].balance || 0);
+
+    // 2. Kiểm tra nếu là BUY và đã từng bán hết → đánh dấu reset
+    let isReset = false;
+    if (transaction_type === 'buy' && currentBalance === 0) {
+        isReset = true;
+    }
+
+
     if (!coin_symbol || !quantity || !price || !transaction_type) {
         return res.status(400).json({ error: "Missing required fields" });
     }
 
     try {
-        const result = await pool.query(
-            `INSERT INTO transactions (coin_symbol, quantity, price, transaction_type, user_id) 
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-            [coin_symbol, quantity, price, transaction_type, userId]
+        const insertResult = await pool.query(
+            `INSERT INTO transactions (coin_symbol, quantity, price, transaction_type, user_id, is_reset_point) 
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+            [coin_symbol, quantity, price, transaction_type, userId, isReset]
         );
+
         res.status(201).json(result.rows[0]);
     } catch (error) {
         console.error("Error adding transaction:", error);
