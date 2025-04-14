@@ -33,6 +33,9 @@ import priceRoute from './routes/price.js';
 app.use("/api/price", priceRoute);
 import expensesRoute from './routes/expenses.js';
 app.use("/api/expenses", expensesRoute);
+import categoriesRoute from './routes/categories.js';
+app.use("/api/categories", categoriesRoute);
+
 
 
 const pool = new Pool({
