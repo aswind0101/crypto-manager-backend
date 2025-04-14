@@ -7,6 +7,7 @@ import { sendAlertEmail } from "./utils/sendAlertEmail.js";
 
 
 
+
 import pkg from "pg";
 const { Pool } = pkg; // ✅ Chính xác
 
@@ -30,7 +31,8 @@ app.use("/api/coin-list", coinListRoute);
 
 import priceRoute from './routes/price.js';
 app.use("/api/price", priceRoute);
-
+import expensesRoute from './routes/expenses.js';
+app.use("/api/expenses", expensesRoute);
 
 
 const pool = new Pool({
