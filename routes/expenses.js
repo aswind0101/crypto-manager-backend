@@ -26,7 +26,7 @@ router.get("/", verifyToken, async (req, res) => {
 // Thêm thu/chi mới
 router.post("/", verifyToken, async (req, res) => {
   const userId = req.user.uid;
-  const { amount, category, type, description } = req.body;
+  const { amount, category, type, description, expense_date } = req.body;
 
   if (!amount || !category || !type) {
     return res.status(400).json({ error: "Missing fields" });
@@ -35,8 +35,8 @@ router.post("/", verifyToken, async (req, res) => {
   try {
     const result = await pool.query(
       `INSERT INTO expenses (user_id, amount, category, type, description)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [userId, amount, category, type, description]
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+       [userId, amount, category, type, description, expense_date || new Date()]
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
