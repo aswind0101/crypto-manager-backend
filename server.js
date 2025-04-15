@@ -39,6 +39,8 @@ import debtsRoute from './routes/debts.js';
 import debtPaymentsRoute from './routes/debtPayments.js';
 app.use("/api/debts", debtsRoute);
 app.use("/api/debt-payments", debtPaymentsRoute);
+import lendersRoute from './routes/lenders.js';
+app.use("/api/lenders", lendersRoute);
 
 
 
