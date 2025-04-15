@@ -34,7 +34,7 @@ router.post("/", verifyToken, async (req, res) => {
 
   try {
     const result = await pool.query(
-      `INSERT INTO expenses (user_id, amount, category, type, description)
+      `INSERT INTO expenses (user_id, amount, category, type, description, expense_date )
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
        [userId, amount, category, type, description, expense_date || new Date()]
     );
