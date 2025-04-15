@@ -35,6 +35,10 @@ import expensesRoute from './routes/expenses.js';
 app.use("/api/expenses", expensesRoute);
 import categoriesRoute from './routes/categories.js';
 app.use("/api/categories", categoriesRoute);
+import debtsRoute from './routes/debts.js';
+import debtPaymentsRoute from './routes/debtPayments.js';
+app.use("/api/debts", debtsRoute);
+app.use("/api/debt-payments", debtPaymentsRoute);
 
 
 
