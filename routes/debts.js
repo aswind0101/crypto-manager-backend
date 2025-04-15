@@ -33,7 +33,7 @@ router.get("/", verifyToken, async (req, res) => {
 // POST: Thêm khoản nợ mới
 router.post("/", verifyToken, async (req, res) => {
   const userId = req.user.uid;
-  const { lender_name, total_amount, note } = req.body;
+  const { lender_name, total_amount, note, created_at } = req.body;
 
   if (!lender_name || !total_amount) {
     return res.status(400).json({ error: "Missing lender name or amount" });
@@ -41,9 +41,9 @@ router.post("/", verifyToken, async (req, res) => {
 
   try {
     const result = await pool.query(`
-      INSERT INTO debts (user_id, lender_name, total_amount, note)
-      VALUES ($1, $2, $3, $4) RETURNING *
-    `, [userId, lender_name, total_amount, note]);
+        INSERT INTO debts (user_id, lender_name, total_amount, note, created_at)
+        VALUES ($1, $2, $3, $4, $5) RETURNING *
+      `, [userId, lender_name, total_amount, note, created_at || new Date()]);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error("Error adding debt:", err.message);
