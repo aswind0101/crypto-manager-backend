@@ -40,7 +40,14 @@ router.post("/", verifyToken, async (req, res) => {
     if (!lender_id || !total_amount) {
       return res.status(400).json({ error: "Missing lender ID or amount" });
     }
-  
+    console.log("➡️ Add debt", {
+        userId,
+        lender_id,
+        total_amount,
+        note,
+        created_at
+      });
+      
     try {
       const result = await pool.query(
         `INSERT INTO debts (user_id, lender_id, total_amount, note, created_at)
@@ -50,8 +57,8 @@ router.post("/", verifyToken, async (req, res) => {
       );
       res.status(201).json(result.rows[0]);
     } catch (err) {
-      console.error("Error adding debt:", err.message);
-      res.status(500).json({ error: "Internal Server Error" });
+        console.error("❌ Error adding debt:", err); // log toàn bộ lỗi
+        res.status(500).json({ error: "Internal Server Error" });
     }
   });  
 
