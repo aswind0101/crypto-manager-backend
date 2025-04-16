@@ -61,5 +61,21 @@ router.post("/", verifyToken, async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
   });  
-
+  router.delete("/:id", verifyToken, async (req, res) => {
+    const userId = req.user.uid;
+    const debtId = req.params.id;
+  
+    try {
+      const result = await pool.query(
+        `DELETE FROM debts WHERE id = $1 AND user_id = $2 RETURNING *`,
+        [debtId, userId]
+      );
+      if (result.rowCount === 0) return res.status(404).json({ error: "Not found" });
+      res.json({ status: "deleted" });
+    } catch (err) {
+      console.error("Error deleting debt:", err.message);
+      res.status(500).json({ error: "Internal Server Error" });
+    }
+  });
+  
 export default router;
