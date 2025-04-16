@@ -90,11 +90,11 @@ router.get("/", verifyToken, async (req, res) => {
 
   try {
     const result = await pool.query(`
-      SELECT p.*
+      SELECT p.*, p.payment_date AS created_at
       FROM debt_payments p
       INNER JOIN debts d ON p.debt_id = d.id
       WHERE d.user_id = $1
-      ORDER BY p.created_at ASC
+      ORDER BY p.payment_date ASC
     `, [userId]);
 
     res.json(result.rows);
