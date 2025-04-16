@@ -43,5 +43,25 @@ router.post("/", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+router.delete("/:id", verifyToken, async (req, res) => {
+  const userId = req.user.uid;
+  const { id } = req.params;
+
+  try {
+    const result = await pool.query(
+      `DELETE FROM expenses WHERE id = $1 AND user_id = $2 RETURNING *`,
+      [id, userId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Expense not found or unauthorized" });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Delete expense error:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 export default router;
