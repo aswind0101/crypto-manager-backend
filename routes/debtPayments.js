@@ -84,6 +84,25 @@ router.post("/by-lender", verifyToken, async (req, res) => {
     client.release();
   }
 });
+// GET: Lấy danh sách các khoản trả nợ của user (dùng để hiển thị trong chi tiết)
+router.get("/", verifyToken, async (req, res) => {
+  const userId = req.user.uid;
+
+  try {
+    const result = await pool.query(`
+      SELECT p.*
+      FROM debt_payments p
+      INNER JOIN debts d ON p.debt_id = d.id
+      WHERE d.user_id = $1
+      ORDER BY p.created_at ASC
+    `, [userId]);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error fetching debt payments:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 
 export default router;
