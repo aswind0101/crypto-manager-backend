@@ -52,7 +52,7 @@ router.delete("/:id", verifyToken, async (req, res) => {
   try {
     // 1. Kiểm tra nếu category đang được dùng trong bảng expenses
     const usedCheck = await pool.query(
-      `SELECT COUNT(*) FROM expenses WHERE user_id = $1 AND category_id = $2`,
+      `SELECT COUNT(*) FROM expenses WHERE user_id = $1 AND category = $2`,
       [userId, categoryId]
     );
 
@@ -69,5 +69,6 @@ router.delete("/:id", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 
 export default router;
