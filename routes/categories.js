@@ -45,5 +45,29 @@ router.post("/", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+router.delete("/:id", verifyToken, async (req, res) => {
+  const userId = req.user.uid;
+  const categoryId = req.params.id;
+
+  try {
+    // 1. Kiểm tra nếu category đang được dùng trong bảng expenses
+    const usedCheck = await pool.query(
+      `SELECT COUNT(*) FROM expenses WHERE user_id = $1 AND category_id = $2`,
+      [userId, categoryId]
+    );
+
+    const count = parseInt(usedCheck.rows[0].count);
+    if (count > 0) {
+      return res.status(400).json({ error: "Category is in use and cannot be deleted." });
+    }
+
+    // 2. Nếu không dùng → xoá
+    await pool.query(`DELETE FROM categories WHERE id = $1 AND user_id = $2`, [categoryId, userId]);
+    res.json({ status: "deleted" });
+  } catch (err) {
+    console.error("❌ Delete category error:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 export default router;
