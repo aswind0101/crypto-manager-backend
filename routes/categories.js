@@ -50,10 +50,22 @@ router.delete("/:id", verifyToken, async (req, res) => {
   const categoryId = req.params.id;
 
   try {
-    // 1. Kiểm tra nếu category đang được dùng trong bảng expenses
+    // 🔍 Truy vấn tên category theo ID
+    const catNameRes = await pool.query(
+      `SELECT name FROM categories WHERE id = $1 AND user_id = $2`,
+      [categoryId, userId]
+    );
+
+    if (catNameRes.rows.length === 0) {
+      return res.status(404).json({ error: "Category not found" });
+    }
+
+    const categoryName = catNameRes.rows[0].name;
+
+    // ✅ Kiểm tra tên này có đang dùng trong bảng expenses không
     const usedCheck = await pool.query(
       `SELECT COUNT(*) FROM expenses WHERE user_id = $1 AND category = $2`,
-      [userId, categoryId]
+      [userId, categoryName]
     );
 
     const count = parseInt(usedCheck.rows[0].count);
@@ -61,14 +73,19 @@ router.delete("/:id", verifyToken, async (req, res) => {
       return res.status(400).json({ error: "Category is in use and cannot be deleted." });
     }
 
-    // 2. Nếu không dùng → xoá
-    await pool.query(`DELETE FROM categories WHERE id = $1 AND user_id = $2`, [categoryId, userId]);
+    // ✅ Nếu không dùng → xoá
+    await pool.query(
+      `DELETE FROM categories WHERE id = $1 AND user_id = $2`,
+      [categoryId, userId]
+    );
+
     res.json({ status: "deleted" });
   } catch (err) {
     console.error("❌ Delete category error:", err.message);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 
 
 export default router;
