@@ -29,7 +29,7 @@ router.post("/", verifyToken, async (req, res) => {
   const userId = req.user.uid;
   const { name, type } = req.body;
 
-  if (!name || !type || !["income", "expense"].includes(type)) {
+  if (!name || !type || !["income", "expense", "credit-spending"].includes(type)) {
     return res.status(400).json({ error: "Invalid input" });
   }
 
