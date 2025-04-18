@@ -24,7 +24,7 @@ router.get("/", verifyToken, async (req, res) => {
   }
 });
 
-// POST: Thêm category mới
+// POST: Thêm category mới (có kiểm tra trùng tên)
 router.post("/", verifyToken, async (req, res) => {
   const userId = req.user.uid;
   const { name, type } = req.body;
@@ -34,17 +34,30 @@ router.post("/", verifyToken, async (req, res) => {
   }
 
   try {
+    // 🔍 Kiểm tra trùng tên (không phân biệt hoa thường)
+    const check = await pool.query(
+      `SELECT id FROM categories WHERE user_id = $1 AND LOWER(name) = LOWER($2)`,
+      [userId, name.trim()]
+    );
+
+    if (check.rows.length > 0) {
+      return res.status(400).json({ error: "Category name already exists." });
+    }
+
     const result = await pool.query(
       `INSERT INTO categories (user_id, name, type) 
        VALUES ($1, $2, $3) RETURNING *`,
       [userId, name.trim(), type]
     );
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error("Error adding category:", err.message);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
+// DELETE: Xoá category (chỉ nếu chưa được dùng)
 router.delete("/:id", verifyToken, async (req, res) => {
   const userId = req.user.uid;
   const categoryId = req.params.id;
@@ -85,7 +98,5 @@ router.delete("/:id", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
-
-
 
 export default router;
