@@ -18,25 +18,29 @@ export async function sendAlertEmail(toEmail, newProfitLoss, changePercent, port
   const statusText = isProfit ? "Profit" : "Loss";
   const sign = isProfit ? "+" : "-";
 
-  const subject = `${emoji} ${statusText} Alert: ${formatMoney(newProfitLoss)} (${sign}${Math.abs(changePercent)}%)`;
+  const subject = `${emoji} ${statusText} Alert: ${formatMoney(newProfitLoss)} (${changePercent}%)`;
+
 
   const coinDetails = portfolio
     .map(coin => {
-      const netInvested = coin.total_invested - coin.total_sold; // 🛠 Tính Net Invested
-      const realProfitLoss = coin.current_price * coin.total_quantity - netInvested; // 🛠 Tính lại lời/lỗ thực tế
+      const netInvested = coin.total_invested - coin.total_sold;
+      const realProfitLoss = coin.current_price * coin.total_quantity - netInvested;
+      const profitPercent = netInvested > 0 ? ((realProfitLoss / netInvested) * 100).toFixed(1) : "N/A";
       const emoji = realProfitLoss >= 0 ? "🟢" : "🔴";
-      return `<li>${emoji} <strong>${coin.coin_symbol.toUpperCase()}</strong>: ${formatMoney(realProfitLoss)} USD</li>`;
+      const profitText = realProfitLoss >= 0 ? `+${profitPercent}%` : `${profitPercent}%`;
+
+      return `<li>${emoji} <strong>${coin.coin_symbol.toUpperCase()}</strong>: ${formatMoney(realProfitLoss)} (${profitText})</li>`;
     })
     .join("");
-    
+
   const html = `
     <h2>${emoji} ${statusText} Alert</h2>
     <p>
       You are currently <strong>${isProfit ? 'making a profit' : 'at a loss'}</strong> of <strong>${formatMoney(newProfitLoss)}</strong>
-      (${sign}${Math.abs(changePercent)}%).
+      (${changePercent}%).
     </p>
     <h3>📊 Breakdown:</h3>
-    <ul>${coinDetails}</ul>
+    <ul style="padding-left:16px;margin-top:8px;margin-bottom:8px;">${coinDetails}</ul>
     <p style="font-size: 12px; color: #666;">— Sent by Crypto Manager (resend.com)</p>
   `;
 
