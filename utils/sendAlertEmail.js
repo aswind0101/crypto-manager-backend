@@ -22,12 +22,13 @@ export async function sendAlertEmail(toEmail, newProfitLoss, changePercent, port
 
   const coinDetails = portfolio
     .map(coin => {
-      const profit = coin.profit_loss.toFixed(2);
-      const emoji = coin.profit_loss >= 0 ? "🟢" : "🔴";
-      return `<li>${emoji} <strong>${coin.coin_symbol.toUpperCase()}</strong>: ${formatMoney(profit)} USD</li>`;
+      const netInvested = coin.total_invested - coin.total_sold; // 🛠 Tính Net Invested
+      const realProfitLoss = coin.current_price * coin.total_quantity - netInvested; // 🛠 Tính lại lời/lỗ thực tế
+      const emoji = realProfitLoss >= 0 ? "🟢" : "🔴";
+      return `<li>${emoji} <strong>${coin.coin_symbol.toUpperCase()}</strong>: ${formatMoney(realProfitLoss)} USD</li>`;
     })
     .join("");
-
+    
   const html = `
     <h2>${emoji} ${statusText} Alert</h2>
     <p>
