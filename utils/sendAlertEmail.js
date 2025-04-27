@@ -13,11 +13,12 @@ function formatMoney(number) {
 }
 
 export async function sendAlertEmail(toEmail, newProfitLoss, changePercent, portfolio) {
-  const formattedChangePercent = (changePercent >= 0 ? "+" : "") + changePercent + "%";
+  const numericChange = Number(changePercent);
+  const formattedChangePercent = (numericChange >= 0 ? "+" : "") + numericChange + "%";
+  
   const isProfit = newProfitLoss >= 0;
   const emoji = isProfit ? "🟢" : "🔴";
   const statusText = isProfit ? "Profit" : "Loss";
-  const sign = isProfit ? "+" : "-";
 
   const subject = `${emoji} ${statusText} Alert: ${formatMoney(newProfitLoss)} (${formattedChangePercent})`;
 
@@ -25,16 +26,16 @@ export async function sendAlertEmail(toEmail, newProfitLoss, changePercent, port
     .map(coin => {
       const netInvested = coin.total_invested - coin.total_sold;
       const realProfitLoss = coin.current_price * coin.total_quantity - netInvested;
-      const profitPercent = netInvested > 0 ? ((realProfitLoss / netInvested) * 100).toFixed(1) : "N/A";
+      const profitPercent = netInvested > 0 ? ((realProfitLoss / netInvested) * 100).toFixed(1) : null;
       const emoji = realProfitLoss >= 0 ? "🟢" : "🔴";
-      const profitText = realProfitLoss >= 0 ? `+${profitPercent}%` : `${profitPercent}%`;
+      const profitText = profitPercent !== null ? (realProfitLoss >= 0 ? `+${profitPercent}%` : `${profitPercent}%`) : "N/A";
 
       return `<li>${emoji} <strong>${coin.coin_symbol.toUpperCase()}</strong>: ${formatMoney(realProfitLoss)} (${profitText})</li>`;
     })
     .join("");
 
   const html = `
-    <h2>Hi,</h2>
+    <h2>📢 Crypto Manager Notification</h2>
     <p>
       You are currently <strong>${isProfit ? 'making a profit' : 'at a loss'}</strong> of <strong>${formatMoney(newProfitLoss)}</strong>
       (${formattedChangePercent}).

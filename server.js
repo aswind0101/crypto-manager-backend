@@ -329,10 +329,10 @@ app.get("/api/check-profit-alerts", async (req, res) => {
             const threshold = alerts[0]?.alert_threshold ?? 5;
             const toEmail = alerts[0]?.email;
 
-            const diff = Math.abs(totalProfitLoss - previous);
-            const percentChange = Math.abs(previous) > 0 ? (diff / Math.abs(previous)) * 100 : 100;
+            const diff = totalProfitLoss - previous;
+            const percentChange = previous !== 0 ? (diff / Math.abs(previous)) * 100 : 100;
 
-            if (percentChange >= threshold && toEmail) {
+            if (Math.abs(percentChange) >= threshold && toEmail) {
                 try {
                     await sendAlertEmail(toEmail, totalProfitLoss, percentChange.toFixed(1), portfolio);
 
