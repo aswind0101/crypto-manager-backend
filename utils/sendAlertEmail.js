@@ -13,13 +13,13 @@ function formatMoney(number) {
 }
 
 export async function sendAlertEmail(toEmail, newProfitLoss, changePercent, portfolio) {
+  const formattedChangePercent = (changePercent >= 0 ? "+" : "") + changePercent + "%";
   const isProfit = newProfitLoss >= 0;
   const emoji = isProfit ? "🟢" : "🔴";
   const statusText = isProfit ? "Profit" : "Loss";
   const sign = isProfit ? "+" : "-";
 
-  const subject = `${emoji} ${statusText} Alert: ${formatMoney(newProfitLoss)} (${changePercent}%)`;
-
+  const subject = `${emoji} ${statusText} Alert: ${formatMoney(newProfitLoss)} (${formattedChangePercent})`;
 
   const coinDetails = portfolio
     .map(coin => {
@@ -34,10 +34,10 @@ export async function sendAlertEmail(toEmail, newProfitLoss, changePercent, port
     .join("");
 
   const html = `
-    <h2>${emoji} ${statusText} Alert</h2>
+    <h2>Hi,</h2>
     <p>
       You are currently <strong>${isProfit ? 'making a profit' : 'at a loss'}</strong> of <strong>${formatMoney(newProfitLoss)}</strong>
-      (${changePercent}%).
+      (${formattedChangePercent}).
     </p>
     <h3>📊 Breakdown:</h3>
     <ul style="padding-left:16px;margin-top:8px;margin-bottom:8px;">${coinDetails}</ul>
