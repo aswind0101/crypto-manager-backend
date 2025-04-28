@@ -25,7 +25,7 @@ export async function sendAlertEmail(toEmail, newProfitLoss, changePercent, port
   const coinDetails = portfolio
     .map(coin => {
       const netInvested = coin.total_invested - coin.total_sold;
-      const realProfitLoss = coin.current_price * coin.total_quantity - netInvested;
+      const realProfitLoss = (coin.current_value ?? 0) - netInvested;
       const profitPercent = netInvested > 0 ? ((realProfitLoss / netInvested) * 100).toFixed(1) : null;
       const emoji = realProfitLoss >= 0 ? "🟢" : "🔴";
       const profitText = profitPercent !== null ? (realProfitLoss >= 0 ? `+${profitPercent}%` : `${profitPercent}%`) : "N/A";
