@@ -128,8 +128,17 @@ app.get("/api/portfolio", verifyToken, async (req, res) => {
   
       const totalInvested = portfolio.reduce((sum, c) => sum + c.total_invested, 0);
       const totalProfitLoss = portfolio.reduce((sum, c) => sum + c.profit_loss, 0);
-  
-      res.json({ portfolio, totalInvested, totalProfitLoss });
+      const txRes = await pool.query(
+        `SELECT coin_symbol, transaction_type, quantity, price, transaction_date
+         FROM transactions
+         WHERE user_id = $1
+         ORDER BY transaction_date DESC
+         LIMIT 50`,
+        [userId]
+      );
+      const transactions = txRes.rows;
+      
+      res.json({ portfolio, totalInvested, totalProfitLoss, transactions });
     } catch (error) {
       console.error("Error fetching portfolio:", error);
       res.status(500).json({ error: "Internal Server Error" });
