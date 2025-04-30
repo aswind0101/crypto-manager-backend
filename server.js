@@ -131,11 +131,10 @@ app.get("/api/portfolio", verifyToken, async (req, res) => {
       const txRes = await pool.query(
         `SELECT coin_symbol, transaction_type, quantity, price, transaction_date
          FROM transactions
-         WHERE user_id = $1
-         ORDER BY transaction_date DESC
-         LIMIT 50`,
-        [userId]
-      );
+         WHERE user_id = $1 AND coin_symbol = ANY($2::text[])
+         ORDER BY transaction_date DESC`,
+        [userId, symbols]
+      );      
       const transactions = txRes.rows;
       
       res.json({ portfolio, totalInvested, totalProfitLoss, transactions });
