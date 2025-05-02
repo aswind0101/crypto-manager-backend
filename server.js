@@ -52,10 +52,10 @@ const pool = new Pool({
 // Get Portfolio (authenticated)
 app.get("/api/portfolio", verifyToken, async (req, res) => {
     const userId = req.user.uid;
-  
+
     try {
-      const result = await pool.query(
-        `SELECT 
+        const result = await pool.query(
+            `SELECT 
           coin_symbol, 
           SUM(CASE WHEN transaction_type = 'buy' THEN quantity ELSE -quantity END) AS total_quantity,
           SUM(CASE WHEN transaction_type = 'buy' THEN quantity * price ELSE 0 END) AS total_invested,
@@ -64,86 +64,86 @@ app.get("/api/portfolio", verifyToken, async (req, res) => {
         WHERE user_id = $1
         GROUP BY coin_symbol
         ORDER BY total_invested DESC;`,
-        [userId]
-      );
-  
-      const symbols = result.rows.map((coin) => coin.coin_symbol);
-  
-      // ✅ Nếu không có coin nào → dừng sớm
-      if (!symbols || symbols.length === 0) {
-        return res.json({ portfolio: [], totalInvested: 0, totalProfitLoss: 0 });
-      }
-  
-      // ✅ Lấy reset date
-      const resetDateResult = await pool.query(
-        `SELECT coin_symbol, MAX(transaction_date) AS reset_date
+            [userId]
+        );
+
+        const symbols = result.rows.map((coin) => coin.coin_symbol);
+
+        // ✅ Nếu không có coin nào → dừng sớm
+        if (!symbols || symbols.length === 0) {
+            return res.json({ portfolio: [], totalInvested: 0, totalProfitLoss: 0 });
+        }
+
+        // ✅ Lấy reset date
+        const resetDateResult = await pool.query(
+            `SELECT coin_symbol, MAX(transaction_date) AS reset_date
          FROM transactions
          WHERE user_id = $1 AND is_reset_point = true AND coin_symbol = ANY($2)
          GROUP BY coin_symbol`,
-        [userId, symbols]
-      );
-  
-      const resetDates = {};
-      resetDateResult.rows.forEach(row => {
-        resetDates[row.coin_symbol] = row.reset_date;
-      });
-  
-      // ✅ Lấy giá coin từ nội bộ API (giá ưu tiên Binance US)
-      const priceUrl = `https://crypto-manager-backend.onrender.com/api/price?symbols=${symbols.join(",")}`;
-      const priceRes = await axios.get(priceUrl);
-      const coinPrices = priceRes.data;
-  
-      const portfolio = [];
-  
-      for (const symbol of symbols) {
-        const resetDate = resetDates[symbol] || '1970-01-01';
-  
-        const { rows } = await pool.query(
-          `SELECT 
+            [userId, symbols]
+        );
+
+        const resetDates = {};
+        resetDateResult.rows.forEach(row => {
+            resetDates[row.coin_symbol] = row.reset_date;
+        });
+
+        // ✅ Lấy giá coin từ nội bộ API (giá ưu tiên Binance US)
+        const priceUrl = `https://crypto-manager-backend.onrender.com/api/price?symbols=${symbols.join(",")}`;
+        const priceRes = await axios.get(priceUrl);
+        const coinPrices = priceRes.data;
+
+        const portfolio = [];
+
+        for (const symbol of symbols) {
+            const resetDate = resetDates[symbol] || '1970-01-01';
+
+            const { rows } = await pool.query(
+                `SELECT 
             SUM(CASE WHEN transaction_type = 'buy' THEN quantity ELSE -quantity END) AS total_quantity,
             SUM(CASE WHEN transaction_type = 'buy' THEN quantity * price ELSE 0 END) AS total_invested,
             SUM(CASE WHEN transaction_type = 'sell' THEN quantity * price ELSE 0 END) AS total_sold
           FROM transactions
           WHERE user_id = $1 AND coin_symbol = $2 AND transaction_date >= $3`,
-          [userId, symbol, resetDate]
-        );
-  
-        const total_quantity = parseFloat(rows[0].total_quantity || 0);
-        const total_invested = parseFloat(rows[0].total_invested || 0);
-        const total_sold = parseFloat(rows[0].total_sold || 0);
-        const current_price = coinPrices[symbol.toUpperCase()] || 0;
-        const current_value = total_quantity * current_price;
-        const profit_loss = current_value - (total_invested - total_sold);
-  
-        portfolio.push({
-          coin_symbol: symbol,
-          total_quantity,
-          total_invested,
-          total_sold,
-          current_price,
-          current_value,
-          profit_loss,
-        });
-      }
-  
-      const totalInvested = portfolio.reduce((sum, c) => sum + c.total_invested, 0);
-      const totalProfitLoss = portfolio.reduce((sum, c) => sum + c.profit_loss, 0);
-      const txRes = await pool.query(
-        `SELECT coin_symbol, transaction_type, quantity, price, transaction_date
+                [userId, symbol, resetDate]
+            );
+
+            const total_quantity = parseFloat(rows[0].total_quantity || 0);
+            const total_invested = parseFloat(rows[0].total_invested || 0);
+            const total_sold = parseFloat(rows[0].total_sold || 0);
+            const current_price = coinPrices[symbol.toUpperCase()] || 0;
+            const current_value = total_quantity * current_price;
+            const profit_loss = current_value - (total_invested - total_sold);
+
+            portfolio.push({
+                coin_symbol: symbol,
+                total_quantity,
+                total_invested,
+                total_sold,
+                current_price,
+                current_value,
+                profit_loss,
+            });
+        }
+
+        const totalInvested = portfolio.reduce((sum, c) => sum + c.total_invested, 0);
+        const totalProfitLoss = portfolio.reduce((sum, c) => sum + c.profit_loss, 0);
+        const txRes = await pool.query(
+            `SELECT coin_symbol, transaction_type, quantity, price, transaction_date
          FROM transactions
          WHERE user_id = $1 AND coin_symbol = ANY($2::text[])
          ORDER BY transaction_date DESC`,
-        [userId, symbols]
-      );      
-      const transactions = txRes.rows;
-      
-      res.json({ portfolio, totalInvested, totalProfitLoss, transactions });
+            [userId, symbols]
+        );
+        const transactions = txRes.rows;
+
+        res.json({ portfolio, totalInvested, totalProfitLoss, transactions });
     } catch (error) {
-      console.error("Error fetching portfolio:", error);
-      res.status(500).json({ error: "Internal Server Error" });
+        console.error("Error fetching portfolio:", error);
+        res.status(500).json({ error: "Internal Server Error" });
     }
-  });
-  
+});
+
 
 // Transactions CRUD
 app.get("/api/transactions", verifyToken, async (req, res) => {
@@ -400,6 +400,46 @@ app.patch("/api/user-alerts", verifyToken, async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+// Get all coin targets for user
+app.get("/api/coin-targets", verifyToken, async (req, res) => {
+    const userId = req.user.uid;
+    try {
+        const { rows } = await pool.query(
+            `SELECT coin_symbol, target_percent FROM user_coin_targets WHERE user_id = $1`,
+            [userId]
+        );
+        res.json(rows);
+    } catch (err) {
+        console.error("Error fetching coin targets:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+// Update target
+app.patch("/api/coin-targets/:symbol", verifyToken, async (req, res) => {
+    const userId = req.user.uid;
+    const symbol = req.params.symbol;
+    const { target_percent } = req.body;
+
+    if (target_percent === undefined || isNaN(target_percent)) {
+        return res.status(400).json({ error: "Invalid target_percent" });
+    }
+
+    try {
+        await pool.query(
+            `INSERT INTO user_coin_targets (user_id, coin_symbol, target_percent)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (user_id, coin_symbol) 
+             DO UPDATE SET target_percent = EXCLUDED.target_percent`,
+            [userId, symbol.toUpperCase(), target_percent]
+        );
+        res.json({ status: "updated" });
+    } catch (err) {
+        console.error("Error updating coin target:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
 
 // Health check
 app.get("/", (req, res) => {
