@@ -3,6 +3,7 @@ import express from "express";
 const router = express.Router();
 
 import verifyToken from "../middleware/verifyToken.js";
+import checkRole from "../middleware/checkRole.js";
 import pkg from "pg";
 const { Pool } = pkg;
 
