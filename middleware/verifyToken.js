@@ -28,18 +28,18 @@ const verifyToken = async (req, res, next) => {
     );
 
     if (result.rowCount === 0) {
-      return res.status(401).json({ error: "User not found in database" });
+      // 👉 Nếu không tìm thấy user trong DB (Crypto Manager), vẫn cho qua (giữ cấu trúc cũ)
+      req.user = decodedToken;  // như app Crypto Manager cũ
+    } else {
+      const user = result.rows[0];
+
+      req.user = {
+        ...decodedToken,            // giữ lại info Firebase
+        db_id: user.id,
+        role: user.role,
+        salon_id: user.salon_id
+      };
     }
-
-    const user = result.rows[0];
-
-    // ✅ Giữ lại toàn bộ decodedToken + thêm role info
-    req.user = {
-      ...decodedToken,             // vẫn giữ các trường email, name, picture...
-      db_id: user.id,              // id trong bảng users
-      role: user.role,             // 'customer' / 'staff' / 'owner'
-      salon_id: user.salon_id      // NULL nếu freelancer hoặc khách
-    };
 
     next();
   } catch (error) {
