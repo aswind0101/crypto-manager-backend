@@ -174,30 +174,30 @@ router.patch("/:id", verifyToken, checkRole(['owner']), async (req, res) => {
 // ✅ API: Staff tự chỉnh sửa hồ sơ của chính mình
 router.patch("/me/update-profile", verifyToken, checkRole(['staff']), async (req, res) => {
     const {
-      position,
-      skills,
-      certifications,
-      experience_years,
-      gender,
-      bio
+        position,
+        skills,
+        certifications,
+        experience_years,
+        gender,
+        bio
     } = req.body;
-  
+
     try {
-      // 🔎 1️⃣ Tìm staff record theo user_id
-      const staffCheck = await pool.query(
-        `SELECT * FROM staff WHERE user_id = $1`,
-        [req.user.db_id]
-      );
-  
-      if (staffCheck.rowCount === 0) {
-        return res.status(404).json({ error: "Staff profile not found" });
-      }
-  
-      const staff = staffCheck.rows[0];
-  
-      // 🔄 2️⃣ Update staff profile
-      const result = await pool.query(
-        `UPDATE staff
+        // 🔎 1️⃣ Tìm staff record theo user_id
+        const staffCheck = await pool.query(
+            `SELECT * FROM staff WHERE user_id = $1`,
+            [req.user.db_id]
+        );
+
+        if (staffCheck.rowCount === 0) {
+            return res.status(404).json({ error: "Staff profile not found" });
+        }
+
+        const staff = staffCheck.rows[0];
+
+        // 🔄 2️⃣ Update staff profile
+        const result = await pool.query(
+            `UPDATE staff
          SET position = COALESCE($1, position),
              skills = COALESCE($2, skills),
              certifications = COALESCE($3, certifications),
@@ -207,23 +207,82 @@ router.patch("/me/update-profile", verifyToken, checkRole(['staff']), async (req
              updated_at = NOW()
          WHERE user_id = $7
          RETURNING *`,
-        [
-          position,
-          skills,
-          certifications,
-          experience_years,
-          gender,
-          bio,
-          req.user.db_id
-        ]
-      );
-  
-      res.json(result.rows[0]);
+            [
+                position,
+                skills,
+                certifications,
+                experience_years,
+                gender,
+                bio,
+                req.user.db_id
+            ]
+        );
+
+        res.json(result.rows[0]);
     } catch (error) {
-      console.error("Error updating own staff profile:", error.message);
-      res.status(500).json({ error: "Failed to update profile" });
+        console.error("Error updating own staff profile:", error.message);
+        res.status(500).json({ error: "Failed to update profile" });
     }
-  });
-  
+});
+
+// ✅ API: Chủ salon thêm nhân viên nội bộ
+router.post("/", verifyToken, checkRole(['owner']), async (req, res) => {
+    const {
+        full_name,
+        email,
+        phone,
+        password,
+        position,
+        skills,
+        gender,
+        experience_years,
+        bio
+    } = req.body;
+
+    if (!full_name || !email || !phone || !password) {
+        return res.status(400).json({ error: "Vui lòng nhập đầy đủ thông tin cơ bản." });
+    }
+
+    try {
+        // 1️⃣ Kiểm tra email đã tồn tại chưa
+        const existingUser = await pool.query(`SELECT * FROM users WHERE email = $1`, [email]);
+        if (existingUser.rowCount > 0) {
+            return res.status(400).json({ error: "Email đã tồn tại." });
+        }
+
+        // 2️⃣ Tạo user mới (role: staff)
+        const hashedPassword = password; // Nếu bạn dùng bcrypt thì hash ở đây, ví dụ: await bcrypt.hash(password, 10)
+        const newUser = await pool.query(
+            `INSERT INTO users (full_name, email, phone, password, role, created_at)
+             VALUES ($1, $2, $3, $4, 'staff', NOW())
+             RETURNING id`,
+            [full_name, email, phone, hashedPassword]
+        );
+        const userId = newUser.rows[0].id;
+
+        // 3️⃣ Tạo staff record
+        const newStaff = await pool.query(
+            `INSERT INTO staff (
+                user_id, salon_id, position, skills, gender, experience_years, bio, is_freelancer, created_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, NOW())
+            RETURNING *`,
+            [
+                userId,
+                req.user.salon_id,
+                position || null,
+                skills || [],
+                gender || null,
+                experience_years || 0,
+                bio || ''
+            ]
+        );
+
+        res.status(201).json({ message: "Thêm nhân viên thành công.", staff: newStaff.rows[0] });
+    } catch (error) {
+        console.error("Error creating staff:", error.message);
+        res.status(500).json({ error: "Đã có lỗi xảy ra khi thêm nhân viên." });
+    }
+});
 
 export default router;
