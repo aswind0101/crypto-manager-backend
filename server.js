@@ -49,6 +49,9 @@ app.use("/api/appointments", appointmentsRoutes);
 import staffRoute from './routes/staff.js';
 app.use("/api/staff", staffRoute);
 
+import usersRouter from './routes/users.js';
+app.use('/api/users', usersRouter);
+
 
 
 //=====================================================================================================
