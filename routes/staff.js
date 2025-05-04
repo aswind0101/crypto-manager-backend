@@ -50,4 +50,41 @@ router.get("/", verifyToken, async (req, res) => {
   }
 });
 
+// ✅ API: Xem chi tiết 1 staff theo ID
+router.get("/:id", verifyToken, async (req, res) => {
+    const { id } = req.params;
+  
+    try {
+      const result = await pool.query(
+        `SELECT s.id AS staff_id,
+                u.full_name,
+                u.email,
+                u.phone,
+                s.position,
+                s.is_freelancer,
+                s.skills,
+                s.certifications,
+                s.experience_years,
+                s.gender,
+                s.rating,
+                s.bio,
+                s.created_at
+         FROM staff s
+         LEFT JOIN users u ON s.user_id = u.id
+         WHERE s.id = $1`,
+        [id]
+      );
+  
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: "Staff not found" });
+      }
+  
+      res.json(result.rows[0]);
+    } catch (error) {
+      console.error("Error fetching staff detail:", error.message);
+      res.status(500).json({ error: "Failed to fetch staff detail" });
+    }
+  });
+  
+
 export default router;
