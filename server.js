@@ -46,6 +46,10 @@ app.use("/api/lenders", lendersRoute);
 import appointmentsRoutes from "./routes/appointments.js";
 app.use("/api/appointments", appointmentsRoutes);
 
+import staffRoute from './routes/staff.js';
+app.use("/api/staff", staffRoute);
+
+
 
 //=====================================================================================================
 
