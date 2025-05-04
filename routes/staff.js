@@ -102,5 +102,73 @@ router.get("/:id", verifyToken, async (req, res) => {
     }
 });
 
+// ✅ API: Chủ salon chỉnh sửa thông tin nhân viên nội bộ
+router.patch("/:id", verifyToken, checkRole(['owner']), async (req, res) => {
+    const { id } = req.params;
+    const {
+        position,
+        skills,
+        certifications,
+        experience_years,
+        gender,
+        rating,
+        bio
+    } = req.body;
+
+    try {
+        // 🔎 1️⃣ Kiểm tra staff có tồn tại & thuộc salon owner hay không
+        const staffCheck = await pool.query(
+            `SELECT * FROM staff WHERE id = $1`,
+            [id]
+        );
+
+        if (staffCheck.rowCount === 0) {
+            return res.status(404).json({ error: "Staff not found" });
+        }
+
+        const staff = staffCheck.rows[0];
+
+        // ⚠️ Nếu là freelancer → không cho phép update
+        if (staff.is_freelancer) {
+            return res.status(403).json({ error: "Cannot edit freelancer profile" });
+        }
+
+        // ⚠️ Kiểm tra quyền: chỉ được chỉnh sửa nhân viên cùng salon
+        if (staff.salon_id !== req.user.salon_id) {
+            return res.status(403).json({ error: "You do not have permission to edit this staff" });
+        }
+
+        // 🔄 2️⃣ Update staff
+        const result = await pool.query(
+            `UPDATE staff
+         SET position = COALESCE($1, position),
+             skills = COALESCE($2, skills),
+             certifications = COALESCE($3, certifications),
+             experience_years = COALESCE($4, experience_years),
+             gender = COALESCE($5, gender),
+             rating = COALESCE($6, rating),
+             bio = COALESCE($7, bio),
+             updated_at = NOW()
+         WHERE id = $8
+         RETURNING *`,
+            [
+                position,
+                skills,
+                certifications,
+                experience_years,
+                gender,
+                rating,
+                bio,
+                id
+            ]
+        );
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error("Error updating staff:", error.message);
+        res.status(500).json({ error: "Failed to update staff" });
+    }
+});
+
 
 export default router;
