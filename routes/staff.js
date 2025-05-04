@@ -170,5 +170,59 @@ router.patch("/:id", verifyToken, checkRole(['owner']), async (req, res) => {
     }
 });
 
+// ✅ API: Staff tự chỉnh sửa hồ sơ của chính mình
+router.patch("/me/update-profile", verifyToken, checkRole(['staff']), async (req, res) => {
+    const {
+      position,
+      skills,
+      certifications,
+      experience_years,
+      gender,
+      bio
+    } = req.body;
+  
+    try {
+      // 🔎 1️⃣ Tìm staff record theo user_id
+      const staffCheck = await pool.query(
+        `SELECT * FROM staff WHERE user_id = $1`,
+        [req.user.db_id]
+      );
+  
+      if (staffCheck.rowCount === 0) {
+        return res.status(404).json({ error: "Staff profile not found" });
+      }
+  
+      const staff = staffCheck.rows[0];
+  
+      // 🔄 2️⃣ Update staff profile
+      const result = await pool.query(
+        `UPDATE staff
+         SET position = COALESCE($1, position),
+             skills = COALESCE($2, skills),
+             certifications = COALESCE($3, certifications),
+             experience_years = COALESCE($4, experience_years),
+             gender = COALESCE($5, gender),
+             bio = COALESCE($6, bio),
+             updated_at = NOW()
+         WHERE user_id = $7
+         RETURNING *`,
+        [
+          position,
+          skills,
+          certifications,
+          experience_years,
+          gender,
+          bio,
+          req.user.db_id
+        ]
+      );
+  
+      res.json(result.rows[0]);
+    } catch (error) {
+      console.error("Error updating own staff profile:", error.message);
+      res.status(500).json({ error: "Failed to update profile" });
+    }
+  });
+  
 
 export default router;
