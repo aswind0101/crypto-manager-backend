@@ -42,6 +42,8 @@ app.use("/api/debt-payments", debtPaymentsRoute);
 import lendersRoute from './routes/lenders.js';
 app.use("/api/lenders", lendersRoute);
 //=============================Nội dung của ứng dụng Nails & Hair Salon================================
+import salonsRoute from './routes/salons.js';
+app.use("/api/salons", salonsRoute);
 
 
 //=====================================================================================================

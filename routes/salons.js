@@ -1,0 +1,105 @@
+// routes/salons.js
+import express from "express";
+import verifyToken from "../middleware/verifyToken.js";
+import pkg from "pg";
+const { Pool } = pkg;
+
+const router = express.Router();
+
+// ✅ Kết nối DB
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+});
+
+// 🔑 Super Admin UID list
+const SUPER_ADMINS = ["D9nW6SLT2pbUuWbNVnCgf2uINok2"];  // 👈 Thay UID này bằng UID thật của bạn
+
+// GET: Lấy danh sách salon
+router.get("/", verifyToken, async (req, res) => {
+    if (!SUPER_ADMINS.includes(req.user.uid)) {
+        return res.status(403).json({ error: "Access denied" });
+    }
+    try {
+        const result = await pool.query("SELECT * FROM salons ORDER BY id DESC");
+        res.json(result.rows);
+    } catch (err) {
+        console.error("❌ Error fetching salons:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+// POST: Thêm salon mới
+router.post("/", verifyToken, async (req, res) => {
+    if (!SUPER_ADMINS.includes(req.user.uid)) {
+        return res.status(403).json({ error: "Access denied" });
+    }
+    const { name, address, phone, owner_user_id, status } = req.body;
+    if (!name) {
+        return res.status(400).json({ error: "Name is required" });
+    }
+    try {
+        const result = await pool.query(
+            `INSERT INTO salons (name, address, phone, owner_user_id, status)
+             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+            [name, address || "", phone || "", owner_user_id || null, status || "active"]
+        );
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error("❌ Error adding salon:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+// PATCH: Cập nhật salon
+router.patch("/:id", verifyToken, async (req, res) => {
+    if (!SUPER_ADMINS.includes(req.user.uid)) {
+        return res.status(403).json({ error: "Access denied" });
+    }
+    const { id } = req.params;
+    const { name, address, phone, owner_user_id, status } = req.body;
+    try {
+        const result = await pool.query(
+            `UPDATE salons SET
+                name = COALESCE($1, name),
+                address = COALESCE($2, address),
+                phone = COALESCE($3, phone),
+                owner_user_id = COALESCE($4, owner_user_id),
+                status = COALESCE($5, status),
+                updated_at = NOW()
+             WHERE id = $6 RETURNING *`,
+            [name, address, phone, owner_user_id, status, id]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Salon not found" });
+        }
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error("❌ Error updating salon:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+// DELETE: Xoá salon (hoặc soft delete)
+router.delete("/:id", verifyToken, async (req, res) => {
+    if (!SUPER_ADMINS.includes(req.user.uid)) {
+        return res.status(403).json({ error: "Access denied" });
+    }
+    const { id } = req.params;
+    try {
+        // 👉 Soft delete: đổi trạng thái thành inactive
+        const result = await pool.query(
+            `UPDATE salons SET status = 'inactive', updated_at = NOW() WHERE id = $1 RETURNING *`,
+            [id]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Salon not found" });
+        }
+        res.json({ message: "Salon marked as inactive" });
+    } catch (err) {
+        console.error("❌ Error deleting salon:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+export default router;
