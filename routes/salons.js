@@ -34,15 +34,15 @@ router.post("/", verifyToken, async (req, res) => {
     if (!SUPER_ADMINS.includes(req.user.uid)) {
         return res.status(403).json({ error: "Access denied" });
     }
-    const { name, address, phone, owner_user_id, status } = req.body;
+    const { name, address, phone, email, owner_user_id, status } = req.body;
     if (!name) {
         return res.status(400).json({ error: "Name is required" });
     }
     try {
         const result = await pool.query(
-            `INSERT INTO salons (name, address, phone, owner_user_id, status)
-             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-            [name, address || "", phone || "", owner_user_id || null, status || "active"]
+            `INSERT INTO salons (name, address, phone, email, owner_user_id, status)
+                VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+            [name, address || "", phone || "", email || "", owner_user_id || null, status || "active"]
         );
         res.status(201).json(result.rows[0]);
     } catch (err) {
@@ -57,18 +57,20 @@ router.patch("/:id", verifyToken, async (req, res) => {
         return res.status(403).json({ error: "Access denied" });
     }
     const { id } = req.params;
-    const { name, address, phone, owner_user_id, status } = req.body;
+    const { name, address, phone, email, owner_user_id, status } = req.body;
     try {
         const result = await pool.query(
             `UPDATE salons SET
                 name = COALESCE($1, name),
                 address = COALESCE($2, address),
                 phone = COALESCE($3, phone),
-                owner_user_id = COALESCE($4, owner_user_id),
-                status = COALESCE($5, status),
+                email = COALESCE($4, email),
+                owner_user_id = COALESCE($5, owner_user_id),
+                status = COALESCE($6, status),
                 updated_at = NOW()
-             WHERE id = $6 RETURNING *`,
-            [name, address, phone, owner_user_id, status, id]
+            WHERE id = $7 RETURNING *`
+            ,
+            [name, address, phone, email, owner_user_id, status, id]
         );
         if (result.rows.length === 0) {
             return res.status(404).json({ error: "Salon not found" });
