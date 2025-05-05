@@ -43,16 +43,6 @@ import lendersRoute from './routes/lenders.js';
 app.use("/api/lenders", lendersRoute);
 //=============================Nội dung của ứng dụng Nails & Hair Salon================================
 
-import appointmentsRoutes from "./routes/appointments.js";
-app.use("/api/appointments", appointmentsRoutes);
-
-import staffRoute from './routes/staff.js';
-app.use("/api/staff", staffRoute);
-
-import usersRouter from './routes/users.js';
-app.use('/api/users', usersRouter);
-
-
 
 //=====================================================================================================
 
