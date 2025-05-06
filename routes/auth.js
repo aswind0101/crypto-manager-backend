@@ -1,7 +1,10 @@
-const express = require("express");
+import express from "express";
+import admin from "firebase-admin";
+import pkg from "pg";
+
+const { Pool } = pkg;
+
 const router = express.Router();
-const admin = require("firebase-admin");
-const { Pool } = require("pg");
 
 // ✅ Kết nối DB (giống các route cũ)
 const pool = new Pool({
