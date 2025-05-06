@@ -34,16 +34,39 @@ router.post("/", verifyToken, async (req, res) => {
     if (!SUPER_ADMINS.includes(req.user.uid)) {
         return res.status(403).json({ error: "Access denied" });
     }
+
     const { name, address, phone, email, owner_user_id, status } = req.body;
+
+    // Check bắt buộc Name
     if (!name) {
         return res.status(400).json({ error: "Name is required" });
     }
+
+    // Check bắt buộc Email
+    if (!email) {
+        return res.status(400).json({ error: "Email is required" });
+    }
+
+    // Check định dạng email (simple regex)
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        return res.status(400).json({ error: "Invalid email format" });
+    }
+
     try {
+        // Kiểm tra xem email đã tồn tại chưa
+        const emailCheck = await pool.query("SELECT id FROM salons WHERE email = $1", [email]);
+        if (emailCheck.rows.length > 0) {
+            return res.status(400).json({ error: "This email already exists in the system" });
+        }
+
+        // Thêm salon mới
         const result = await pool.query(
             `INSERT INTO salons (name, address, phone, email, owner_user_id, status)
                 VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-            [name, address || "", phone || "", email || "", owner_user_id || null, status || "active"]
+            [name, address || "", phone || "", email, owner_user_id || null, status || "active"]
         );
+
         res.status(201).json(result.rows[0]);
     } catch (err) {
         console.error("❌ Error adding salon:", err.message);
