@@ -1,6 +1,8 @@
 import express from "express";
 import admin from "firebase-admin";
 import pkg from "pg";
+import verifyToken from "../middleware/verifyToken.js";
+
 
 const { Pool } = pkg;
 
