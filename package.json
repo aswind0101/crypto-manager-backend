@@ -16,6 +16,7 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "firebase-admin": "^13.2.0",
+    "libphonenumber-js": "^1.12.7",
     "node-cache": "^5.1.2",
     "node-cron": "^3.0.3",
     "node-fetch": "^3.3.2",
