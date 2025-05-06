@@ -12,6 +12,49 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false },
 });
 
+// ✅ API: Lấy role user hiện tại
+router.get("/user-role", verifyToken, async (req, res) => {
+    const { uid, email } = req.user;
+
+    try {
+        // 1️⃣ Check trong bảng users
+        const userCheck = await pool.query("SELECT role FROM users WHERE firebase_uid = $1", [uid]);
+
+        if (userCheck.rows.length > 0) {
+            return res.status(200).json({ role: userCheck.rows[0].role });
+        }
+
+        // 2️⃣ Nếu chưa có trong bảng users, check xem email có thuộc salon nào không?
+        const salonCheck = await pool.query("SELECT id FROM salons WHERE email = $1", [email]);
+
+        if (salonCheck.rows.length > 0) {
+            // ➔ Salon có email khớp ➔ Gán role = Salon_Chu
+            await pool.query(
+                "INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, $3)",
+                [uid, email, "Salon_Chu"]
+            );
+
+            // Update salons.owner_user_id nếu chưa gán
+            await pool.query(
+                "UPDATE salons SET owner_user_id = $1 WHERE email = $2 AND (owner_user_id IS NULL OR owner_user_id = '')",
+                [uid, email]
+            );
+
+            return res.status(200).json({ role: "Salon_Chu" });
+        }
+
+        // 3️⃣ Nếu không khớp gì hết ➔ mặc định KhachHang
+        await pool.query(
+            "INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, $3)",
+            [uid, email, "KhachHang"]
+        );
+
+        return res.status(200).json({ role: "KhachHang" });
+    } catch (err) {
+        console.error("❌ Error fetching user role:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
 // POST: Đăng ký tài khoản mới
 router.post("/register", async (req, res) => {
     const { email, password, role } = req.body;
