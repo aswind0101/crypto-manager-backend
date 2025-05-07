@@ -41,14 +41,14 @@ router.post("/", verifyToken, async (req, res) => {
 // GET: Lấy danh sách nhân viên
 router.get("/", verifyToken, async (req, res) => {
     const { uid, email, role: userRole } = req.user;
+    const normalizedRole = userRole ? userRole.trim().toLowerCase() : "";
 
     try {
         let result;
+
         if (SUPER_ADMINS.includes(uid)) {
-            // Super Admin thấy hết
             result = await pool.query(`SELECT * FROM employees ORDER BY id DESC`);
-        } else if (userRole === "Salon_Chu") {
-            // Lấy salon_id của chủ salon
+        } else if (normalizedRole === "salon_chu") {
             const salon = await pool.query(
                 `SELECT id FROM salons WHERE owner_user_id = $1`,
                 [uid]
@@ -60,7 +60,6 @@ router.get("/", verifyToken, async (req, res) => {
 
             const salonId = salon.rows[0].id;
 
-            // Lọc nhân viên theo salon_id
             result = await pool.query(
                 `SELECT * FROM employees WHERE salon_id = $1 ORDER BY id DESC`,
                 [salonId]
