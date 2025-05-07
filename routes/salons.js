@@ -80,7 +80,7 @@ router.patch("/:id", verifyToken, async (req, res) => {
         return res.status(403).json({ error: "Access denied" });
     }
     const { id } = req.params;
-    const { name, address, phone, email, owner_user_id, status } = req.body;
+    const { name, address, phone, email, status } = req.body;
     try {
         const result = await pool.query(
             `UPDATE salons SET
@@ -88,12 +88,11 @@ router.patch("/:id", verifyToken, async (req, res) => {
                 address = COALESCE($2, address),
                 phone = COALESCE($3, phone),
                 email = COALESCE($4, email),
-                owner_user_id = COALESCE($5, owner_user_id),
                 status = COALESCE($6, status),
                 updated_at = NOW()
-            WHERE id = $7 RETURNING *`
+            WHERE id = $6 RETURNING *`
             ,
-            [name, address, phone, email, owner_user_id, status, id]
+            [name, address, phone, email, status, id]
         );
         if (result.rows.length === 0) {
             return res.status(404).json({ error: "Salon not found" });
