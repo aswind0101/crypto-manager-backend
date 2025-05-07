@@ -45,6 +45,23 @@ router.get("/user-role", verifyToken, async (req, res) => {
             return res.status(200).json({ role: "Salon_Chu" });
         }
 
+        // Check bảng employees → gán Salon_NhanVien
+        const employeeCheck = await pool.query("SELECT id FROM employees WHERE email = $1", [email]);
+
+        if (employeeCheck.rows.length > 0) {
+            await pool.query(
+                "INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, $3)",
+                [uid, email, "Salon_NhanVien"]
+            );
+
+            await pool.query(
+                "UPDATE employees SET firebase_uid = $1 WHERE email = $2 AND (firebase_uid IS NULL OR firebase_uid = '')",
+                [uid, email]
+            );
+
+            return res.status(200).json({ role: "Salon_NhanVien" });
+        }
+
         // 3️⃣ Nếu không khớp gì hết ➔ mặc định KhachHang
         await pool.query(
             "INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, $3)",
