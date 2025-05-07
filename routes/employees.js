@@ -67,9 +67,9 @@ router.get("/", verifyToken, async (req, res) => {
                 [salonId]
             );
         } else {
+            console.log("uid:", uid, "email:", email, "userRole:", userRole);
             return res.status(403).json({ error: "Access denied" });
         }
-        console.log("uid:", uid, "email:", email, "userRole:", userRole);
         res.json(result.rows);
     } catch (err) {
         console.error("❌ Error fetching employees:", err.message);
