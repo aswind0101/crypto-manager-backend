@@ -38,4 +38,47 @@ router.post("/", verifyToken, async (req, res) => {
     }
 });
 
+// GET: Lấy danh sách nhân viên
+router.get("/", verifyToken, async (req, res) => {
+    const { uid, email, role: userRole } = req.user;
+
+    // Chỉ Super Admin hoặc Chủ Salon xem được danh sách
+    if (!SUPER_ADMINS.includes(uid) && userRole !== "Salon_Chu") {
+        return res.status(403).json({ error: "Access denied" });
+    }
+
+    try {
+        const result = await pool.query(
+            `SELECT * FROM employees ORDER BY id DESC`
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error("❌ Error fetching employees:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+// DELETE: Xoá nhân viên (hoặc soft delete)
+router.delete("/:id", verifyToken, async (req, res) => {
+    const { uid, role: userRole } = req.user;
+    const { id } = req.params;
+
+    if (!SUPER_ADMINS.includes(uid) && userRole !== "Salon_Chu") {
+        return res.status(403).json({ error: "Access denied" });
+    }
+
+    try {
+        const result = await pool.query(
+            `DELETE FROM employees WHERE id = $1 RETURNING *`,
+            [id]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Employee not found" });
+        }
+        res.json({ message: "Employee deleted" });
+    } catch (err) {
+        console.error("❌ Error deleting employee:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
 export default router;
