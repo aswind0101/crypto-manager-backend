@@ -173,7 +173,7 @@ router.post('/upload/avatar', verifyToken, upload.single('avatar'), async (req, 
 });
 router.post("/upload/certifications", verifyToken, upload.array("files"), async (req, res) => {
     const { uid } = req.user;
-    const filePaths = req.files.map(f => `/uploads/avatars/${f.filename}`);
+    const filePaths = req.files.map(f => `/uploads/certifications/${f.filename}`);
 
     try {
         const result = await pool.query(
@@ -200,7 +200,7 @@ router.post("/upload/certifications", verifyToken, upload.array("files"), async 
 });
 router.post("/upload/id_documents", verifyToken, upload.array("files"), async (req, res) => {
     const { uid } = req.user;
-    const filePaths = req.files.map(f => `/uploads/avatars/${f.filename}`);
+    const filePaths = req.files.map(f => `/uploads/id_documents/${f.filename}`);
 
     try {
         const result = await pool.query(
