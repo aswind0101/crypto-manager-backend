@@ -169,6 +169,88 @@ router.post('/upload/avatar', verifyToken, upload.single('avatar'), async (req, 
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
+router.post("/upload/certifications", verifyToken, upload.array("files"), async (req, res) => {
+    const { uid } = req.user;
+    const filePaths = req.files.map(f => `/uploads/avatars/${f.filename}`);
+
+    try {
+        const result = await pool.query(
+            `UPDATE employees 
+             SET certifications = $1, certification_status = 'In Review' 
+             WHERE firebase_uid = $2 
+             RETURNING *`,
+            [filePaths, uid]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Employee not found" });
+        }
+
+        res.json({
+            message: "Certifications uploaded, status set to In Review",
+            certifications: filePaths,
+            certification_status: 'In Review'
+        });
+    } catch (err) {
+        console.error("❌ Error uploading certifications:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+router.post("/upload/id_documents", verifyToken, upload.array("files"), async (req, res) => {
+    const { uid } = req.user;
+    const filePaths = req.files.map(f => `/uploads/avatars/${f.filename}`);
+
+    try {
+        const result = await pool.query(
+            `UPDATE employees 
+             SET id_documents = $1, id_document_status = 'In Review' 
+             WHERE firebase_uid = $2 
+             RETURNING *`,
+            [filePaths, uid]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Employee not found" });
+        }
+
+        res.json({
+            message: "ID Documents uploaded, status set to In Review",
+            id_documents: filePaths,
+            id_document_status: 'In Review'
+        });
+    } catch (err) {
+        console.error("❌ Error uploading ID documents:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+router.patch("/update-status", verifyToken, async (req, res) => {
+    const { uid, role } = req.user;
+    const { employee_id, type, status } = req.body;
+
+    if (role !== 'Salon_Chu' && !SUPER_ADMINS.includes(uid)) {
+        return res.status(403).json({ error: "Access denied" });
+    }
+
+    if (!['certification_status', 'id_document_status'].includes(type) || !['Approved', 'In Review'].includes(status)) {
+        return res.status(400).json({ error: "Invalid type or status" });
+    }
+
+    try {
+        const result = await pool.query(
+            `UPDATE employees SET ${type} = $1 WHERE id = $2 RETURNING *`,
+            [status, employee_id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Employee not found" });
+        }
+
+        res.json({ message: `${type} updated`, [type]: status });
+    } catch (err) {
+        console.error("❌ Error updating status:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
 
 router.delete("/:id", verifyToken, attachUserRole, async (req, res) => {
     const { uid, role: userRole } = req.user;
