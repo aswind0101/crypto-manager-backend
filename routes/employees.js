@@ -141,10 +141,15 @@ router.post("/", verifyToken, attachUserRole, async (req, res) => {
 });
 // API: Upload avatar
 router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, res) => {
-    const { uid } = req.user;
-    const filePath = `/uploads/avatars/${req.file.filename}`;
-
     try {
+        // check req.file
+        if (!req.file) {
+            return res.status(400).json({ error: "No file uploaded" });
+        }
+
+        const { uid } = req.user;
+        const filePath = `/uploads/avatars/${req.file.filename}`;
+
         const result = await pool.query(
             `UPDATE employees SET avatar_url = $1 WHERE firebase_uid = $2 RETURNING *`,
             [filePath, uid]
@@ -160,6 +165,7 @@ router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, 
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 router.delete("/:id", verifyToken, attachUserRole, async (req, res) => {
     const { uid, role: userRole } = req.user;
     const { id } = req.params;
