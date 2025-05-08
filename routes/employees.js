@@ -49,6 +49,56 @@ router.get("/", verifyToken, attachUserRole, async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+// GET: Nhân viên lấy profile của chính mình
+router.get("/me", verifyToken, async (req, res) => {
+    const { uid } = req.user;
+
+    try {
+        const emp = await pool.query(
+            `SELECT * FROM employees WHERE firebase_uid = $1`,
+            [uid]
+        );
+
+        if (emp.rows.length === 0) {
+            return res.status(404).json({ error: "Employee not found" });
+        }
+
+        res.json(emp.rows[0]);
+    } catch (err) {
+        console.error("❌ Error fetching employee me:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+// PATCH: Nhân viên update profile của chính mình
+router.patch("/me", verifyToken, async (req, res) => {
+    const { uid } = req.user;
+    const { name, phone, avatar_url, certifications, id_documents } = req.body;
+
+    try {
+        const result = await pool.query(
+            `UPDATE employees SET
+                name = COALESCE($1, name),
+                phone = COALESCE($2, phone),
+                avatar_url = COALESCE($3, avatar_url),
+                certifications = COALESCE($4, certifications),
+                id_documents = COALESCE($5, id_documents),
+                updated_at = NOW()
+            WHERE firebase_uid = $6
+            RETURNING *`,
+            [name, phone, avatar_url, certifications, id_documents, uid]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Employee not found" });
+        }
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error("❌ Error updating employee me:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
 
 router.post("/", verifyToken, attachUserRole, async (req, res) => {
     const { uid, role: userRole } = req.user;
