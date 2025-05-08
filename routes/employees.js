@@ -74,7 +74,11 @@ router.get("/me", verifyToken, async (req, res) => {
 
     try {
         const emp = await pool.query(
-            `SELECT * FROM employees WHERE firebase_uid = $1`,
+            `SELECT name, phone, avatar_url, description, certifications, id_documents, 
+                    certification_status, id_document_status, role, 
+                    rating_avg, rating_count, total_customers, commission_percent, 
+                    is_freelancer, payment_verified 
+             FROM employees WHERE firebase_uid = $1`,
             [uid]
         );
 
@@ -92,7 +96,7 @@ router.get("/me", verifyToken, async (req, res) => {
 // PATCH: Nhân viên update profile của chính mình
 router.patch("/me", verifyToken, async (req, res) => {
     const { uid } = req.user;
-    const { name, phone, avatar_url, certifications, id_documents } = req.body;
+    const { name, phone, avatar_url, certifications, id_documents, description } = req.body;
 
     try {
         const result = await pool.query(
@@ -102,10 +106,11 @@ router.patch("/me", verifyToken, async (req, res) => {
                 avatar_url = COALESCE($3, avatar_url),
                 certifications = COALESCE($4, certifications),
                 id_documents = COALESCE($5, id_documents),
+                description = COALESCE($6, description),
                 updated_at = NOW()
-            WHERE firebase_uid = $6
+            WHERE firebase_uid = $7
             RETURNING *`,
-            [name, phone, avatar_url, certifications, id_documents, uid]
+            [name, phone, avatar_url, certifications, id_documents, description, uid]
         );
 
         if (result.rows.length === 0) {

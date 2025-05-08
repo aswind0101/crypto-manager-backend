@@ -35,6 +35,7 @@ yarn-error.log*
 .env.local
 firebase-service-account.json
 cron.js
+database
 
 # vercel
 .vercel
