@@ -49,7 +49,7 @@ import employeesRoute from './routes/employees.js';
 app.use("/api/employees", employeesRoute);
 app.use("/api/salons", salonsRoute);
 app.use("/api", authRoutes);
-
+app.use("/uploads", express.static("uploads"));
 
 
 //=====================================================================================================
