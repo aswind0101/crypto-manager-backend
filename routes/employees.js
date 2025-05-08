@@ -129,11 +129,11 @@ router.post('/translate-description', verifyToken, async (req, res) => {
     }
 
     try {
-        const result = await translate(description, { to: targetLang });
+        const result = await translate.default(description, { to: targetLang });
         res.json({ translatedText: result.text });
     } catch (err) {
-        console.error('❌ Error translating description:', err.message);
-        res.status(500).json({ error: 'Translation failed' });
+        console.error('❌ Error translating description:', err);
+        res.status(500).json({ error: 'Translation failed', detail: err.message });
     }
 });
 
