@@ -17,10 +17,10 @@ const SUPER_ADMINS = ["D9nW6SLT2pbUuWbNVnCgf2uINok2"];
 // Setup multer storage
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        const dir = 'uploads/avatars';
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
+        let dir = 'uploads/avatars';
+        if (req.originalUrl.includes('certifications')) dir = 'uploads/certifications';
+        if (req.originalUrl.includes('id_documents')) dir = 'uploads/id_documents';
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         cb(null, dir);
     },
     filename: (req, file, cb) => {
@@ -28,6 +28,7 @@ const storage = multer.diskStorage({
         cb(null, req.user.uid + '_' + Date.now() + ext);
     },
 });
+
 const upload = multer({ storage });
 
 router.get("/", verifyToken, attachUserRole, async (req, res) => {
