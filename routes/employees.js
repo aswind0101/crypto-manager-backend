@@ -1,7 +1,6 @@
 import express from "express";
 import verifyToken from "../middleware/verifyToken.js";
 import { attachUserRole } from "../middleware/attachUserRole.js";
-import * as translate from '@vitalets/google-translate-api';
 import multer from "multer";
 import path from "path";
 import fs from 'fs';
@@ -118,22 +117,6 @@ router.patch("/me", verifyToken, async (req, res) => {
     } catch (err) {
         console.error("❌ Error updating employee me:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
-    }
-});
-
-router.post('/translate-description', verifyToken, async (req, res) => {
-    const { description, targetLang } = req.body;
-
-    if (!description || !targetLang) {
-        return res.status(400).json({ error: 'Missing description or targetLang' });
-    }
-
-    try {
-        const result = await translate.default(description, { to: targetLang });
-        res.json({ translatedText: result.text });
-    } catch (err) {
-        console.error('❌ Error translating description:', err);
-        res.status(500).json({ error: 'Translation failed', detail: err.message });
     }
 });
 
