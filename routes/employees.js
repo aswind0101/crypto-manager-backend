@@ -3,6 +3,7 @@ import verifyToken from "../middleware/verifyToken.js";
 import { attachUserRole } from "../middleware/attachUserRole.js";
 import multer from "multer";
 import path from "path";
+import fs from 'fs';
 import pkg from "pg";
 const { Pool } = pkg;
 
@@ -16,14 +17,18 @@ const SUPER_ADMINS = ["D9nW6SLT2pbUuWbNVnCgf2uINok2"];
 // Setup multer storage
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, "uploads/avatars/");
+        const dir = 'uploads/avatars';
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+        cb(null, dir);
     },
     filename: (req, file, cb) => {
         const ext = path.extname(file.originalname);
-        cb(null, req.user.uid + "_" + Date.now() + ext);
+        cb(null, req.user.uid + '_' + Date.now() + ext);
     },
 });
-const upload = multer({ storage: storage });
+const upload = multer({ storage });
 
 router.get("/", verifyToken, attachUserRole, async (req, res) => {
     const { uid, email, role: userRole } = req.user;
@@ -140,29 +145,28 @@ router.post("/", verifyToken, attachUserRole, async (req, res) => {
     }
 });
 // API: Upload avatar
-router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, res) => {
+router.post('/upload/avatar', verifyToken, upload.single('avatar'), async (req, res) => {
     try {
-        // check req.file
         if (!req.file) {
-            return res.status(400).json({ error: "No file uploaded" });
+            return res.status(400).json({ error: 'No file uploaded' });
         }
 
         const { uid } = req.user;
         const filePath = `/uploads/avatars/${req.file.filename}`;
 
         const result = await pool.query(
-            `UPDATE employees SET avatar_url = $1 WHERE firebase_uid = $2 RETURNING *`,
+            'UPDATE employees SET avatar_url = $1 WHERE firebase_uid = $2 RETURNING *',
             [filePath, uid]
         );
 
         if (result.rows.length === 0) {
-            return res.status(404).json({ error: "Employee not found" });
+            return res.status(404).json({ error: 'Employee not found' });
         }
 
-        res.json({ message: "Avatar uploaded", avatar_url: filePath });
+        res.json({ message: 'Avatar uploaded', avatar_url: filePath });
     } catch (err) {
-        console.error("❌ Error uploading avatar:", err.message);
-        res.status(500).json({ error: "Internal Server Error" });
+        console.error('❌ Error uploading avatar:', err);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 
