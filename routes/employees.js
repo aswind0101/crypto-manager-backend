@@ -74,11 +74,7 @@ router.get("/me", verifyToken, async (req, res) => {
 
     try {
         const emp = await pool.query(
-            `SELECT name, phone, avatar_url, description, certifications, id_documents, 
-                    certification_status, id_document_status, role, 
-                    rating_avg, rating_count, total_customers, commission_percent, 
-                    is_freelancer, payment_verified 
-             FROM employees WHERE firebase_uid = $1`,
+            `SELECT * FROM employees WHERE firebase_uid = $1`,
             [uid]
         );
 
