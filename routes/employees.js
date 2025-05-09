@@ -225,7 +225,7 @@ router.post("/upload/id_documents", verifyToken, upload.array("files"), async (r
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
-router.patch("/update-status", verifyToken, async (req, res) => {
+router.patch("/update-status", verifyToken, attachUserRole, async (req, res) => {
     const { uid, role } = req.user;
     const { employee_id, type, status } = req.body;
 
