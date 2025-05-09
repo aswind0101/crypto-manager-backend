@@ -20,17 +20,17 @@ const __dirname = path.dirname(__filename);
 const SUPER_ADMINS = ["D9nW6SLT2pbUuWbNVnCgf2uINok2"];
 // Multer storage: cho vào đúng folder theo URL
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    let dir = "uploads/avatars";
-    if (req.originalUrl.includes("certifications")) dir = "uploads/certifications";
-    if (req.originalUrl.includes("id_documents"))   dir = "uploads/id_documents";
-    if (!fs.existsSync(path.join(__dirname, "..", dir))) fs.mkdirSync(path.join(__dirname, "..", dir), { recursive: true });
-    cb(null, path.join(__dirname, "..", dir));
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${req.user.uid}_${Date.now()}${ext}`);
-  },
+    destination: (req, file, cb) => {
+        let dir = "uploads/avatars";
+        if (req.originalUrl.includes("certifications")) dir = "uploads/certifications";
+        if (req.originalUrl.includes("id_documents")) dir = "uploads/id_documents";
+        if (!fs.existsSync(path.join(__dirname, "..", dir))) fs.mkdirSync(path.join(__dirname, "..", dir), { recursive: true });
+        cb(null, path.join(__dirname, "..", dir));
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        cb(null, `${req.user.uid}_${Date.now()}${ext}`);
+    },
 });
 const upload = multer({ storage });
 
@@ -150,30 +150,54 @@ router.post("/", verifyToken, attachUserRole, async (req, res) => {
     }
 });
 // API: Upload avatar
-router.post('/upload/avatar', verifyToken, upload.single('avatar'), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
+// API: Upload avatar (xóa avatar cũ trước khi lưu mới)
+router.post(
+    "/upload/avatar",
+    verifyToken,
+    upload.single("avatar"),
+    async (req, res) => {
+        try {
+            if (!req.file) {
+                return res.status(400).json({ error: "No file uploaded" });
+            }
+
+            const { uid } = req.user;
+
+            // 1️⃣ Lấy avatar cũ và xóa file nếu có
+            const old = await pool.query(
+                "SELECT avatar_url FROM employees WHERE firebase_uid = $1",
+                [uid]
+            );
+            const oldUrl = old.rows[0]?.avatar_url;
+            if (oldUrl) {
+                const abs = path.join(__dirname, "..", oldUrl);
+                if (fs.existsSync(abs)) fs.unlinkSync(abs);
+            }
+
+            // 2️⃣ Lưu avatar mới và cập nhật DB
+            const filePath = `/uploads/avatars/${req.file.filename}`;
+            const result = await pool.query(
+                `UPDATE employees
+              SET avatar_url = $1
+            WHERE firebase_uid = $2
+            RETURNING avatar_url`,
+                [filePath, uid]
+            );
+            if (!result.rows.length) {
+                return res.status(404).json({ error: "Employee not found" });
+            }
+
+            res.json({
+                message: "Avatar uploaded",
+                avatar_url: result.rows[0].avatar_url,
+            });
+        } catch (err) {
+            console.error("❌ Error uploading avatar:", err.message);
+            res.status(500).json({ error: "Internal Server Error" });
         }
-
-        const { uid } = req.user;
-        const filePath = `/uploads/avatars/${req.file.filename}`;
-
-        const result = await pool.query(
-            'UPDATE employees SET avatar_url = $1 WHERE firebase_uid = $2 RETURNING *',
-            [filePath, uid]
-        );
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Employee not found' });
-        }
-
-        res.json({ message: 'Avatar uploaded', avatar_url: filePath });
-    } catch (err) {
-        console.error('❌ Error uploading avatar:', err);
-        res.status(500).json({ error: 'Internal Server Error' });
     }
-});
+);
+
 router.post(
     "/upload/certifications",
     verifyToken,
@@ -222,43 +246,43 @@ router.post(
     verifyToken,
     upload.array("files"),
     async (req, res) => {
-      const { uid } = req.user;
-      try {
-        // 1️⃣ Lấy và xoá file cũ
-        const old = await pool.query(
-          "SELECT id_documents FROM employees WHERE firebase_uid = $1",
-          [uid]
-        );
-        const oldFiles = old.rows[0]?.id_documents || [];
-        oldFiles.forEach(rel => {
-          const p = path.join(__dirname, "..", rel);
-          if (fs.existsSync(p)) fs.unlinkSync(p);
-        });
-  
-        // 2️⃣ Lưu file mới và cập nhật DB
-        const filePaths = req.files.map(f => `/uploads/id_documents/${f.filename}`);
-        const result = await pool.query(
-          `UPDATE employees
+        const { uid } = req.user;
+        try {
+            // 1️⃣ Lấy và xoá file cũ
+            const old = await pool.query(
+                "SELECT id_documents FROM employees WHERE firebase_uid = $1",
+                [uid]
+            );
+            const oldFiles = old.rows[0]?.id_documents || [];
+            oldFiles.forEach(rel => {
+                const p = path.join(__dirname, "..", rel);
+                if (fs.existsSync(p)) fs.unlinkSync(p);
+            });
+
+            // 2️⃣ Lưu file mới và cập nhật DB
+            const filePaths = req.files.map(f => `/uploads/id_documents/${f.filename}`);
+            const result = await pool.query(
+                `UPDATE employees
               SET id_documents = $1,
                   id_document_status = 'In Review'
             WHERE firebase_uid = $2
             RETURNING id_documents, id_document_status`,
-          [filePaths, uid]
-        );
-        if (!result.rows.length) {
-          return res.status(404).json({ error: "Employee not found" });
+                [filePaths, uid]
+            );
+            if (!result.rows.length) {
+                return res.status(404).json({ error: "Employee not found" });
+            }
+            res.json({
+                message: "ID Documents uploaded, status set to In Review",
+                id_documents: result.rows[0].id_documents,
+                id_document_status: result.rows[0].id_document_status,
+            });
+        } catch (err) {
+            console.error("❌ Error uploading ID documents:", err.message);
+            res.status(500).json({ error: "Internal Server Error" });
         }
-        res.json({
-          message: "ID Documents uploaded, status set to In Review",
-          id_documents: result.rows[0].id_documents,
-          id_document_status: result.rows[0].id_document_status,
-        });
-      } catch (err) {
-        console.error("❌ Error uploading ID documents:", err.message);
-        res.status(500).json({ error: "Internal Server Error" });
-      }
     }
-  );
+);
 
 router.patch("/update-status", verifyToken, attachUserRole, async (req, res) => {
     const { uid, role } = req.user;
