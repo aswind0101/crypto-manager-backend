@@ -4,7 +4,6 @@ import { attachUserRole } from "../middleware/attachUserRole.js";
 import multer from "multer";
 import path from "path";
 import fs from 'fs';
-import { fileURLToPath } from "url";
 import pkg from "pg";
 const { Pool } = pkg;
 
@@ -13,25 +12,23 @@ const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
 });
-// Polyfill __dirname trong ESM
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const SUPER_ADMINS = ["D9nW6SLT2pbUuWbNVnCgf2uINok2"];
-// Multer storage: cho vào đúng folder theo URL
+// Setup multer storage
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    let dir = "uploads/avatars";
-    if (req.originalUrl.includes("certifications")) dir = "uploads/certifications";
-    if (req.originalUrl.includes("id_documents"))   dir = "uploads/id_documents";
-    if (!fs.existsSync(path.join(__dirname, "..", dir))) fs.mkdirSync(path.join(__dirname, "..", dir), { recursive: true });
-    cb(null, path.join(__dirname, "..", dir));
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${req.user.uid}_${Date.now()}${ext}`);
-  },
+    destination: (req, file, cb) => {
+        let dir = 'uploads/avatars';
+        if (req.originalUrl.includes('certifications')) dir = 'uploads/certifications';
+        if (req.originalUrl.includes('id_documents')) dir = 'uploads/id_documents';
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        cb(null, req.user.uid + '_' + Date.now() + ext);
+    },
 });
+
 const upload = multer({ storage });
 
 router.get("/", verifyToken, attachUserRole, async (req, res) => {
@@ -174,92 +171,60 @@ router.post('/upload/avatar', verifyToken, upload.single('avatar'), async (req, 
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
-router.post(
-    "/upload/certifications",
-    verifyToken,
-    upload.array("files"),
-    async (req, res) => {
-        const { uid } = req.user;
-        try {
-            // 1️⃣ Lấy và xoá file cũ
-            const old = await pool.query(
-                "SELECT certifications FROM employees WHERE firebase_uid = $1",
-                [uid]
-            );
-            const oldFiles = old.rows[0]?.certifications || [];
-            oldFiles.forEach(rel => {
-                const p = path.join(__dirname, "..", rel);
-                if (fs.existsSync(p)) fs.unlinkSync(p);
-            });
+router.post("/upload/certifications", verifyToken, upload.array("files"), async (req, res) => {
+    const { uid } = req.user;
+    const filePaths = req.files.map(f => `/uploads/certifications/${f.filename}`);
 
-            // 2️⃣ Lưu file mới và cập nhật DB
-            const filePaths = req.files.map(f => `/uploads/certifications/${f.filename}`);
-            const result = await pool.query(
-                `UPDATE employees
-              SET certifications = $1,
-                  certification_status = 'In Review'
-            WHERE firebase_uid = $2
-            RETURNING certifications, certification_status`,
-                [filePaths, uid]
-            );
-            if (!result.rows.length) {
-                return res.status(404).json({ error: "Employee not found" });
-            }
-            res.json({
-                message: "Certifications uploaded, status set to In Review",
-                certifications: result.rows[0].certifications,
-                certification_status: result.rows[0].certification_status,
-            });
-        } catch (err) {
-            console.error("❌ Error uploading certifications:", err.message);
-            res.status(500).json({ error: "Internal Server Error" });
-        }
-    }
-);
-
-router.post(
-    "/upload/id_documents",
-    verifyToken,
-    upload.array("files"),
-    async (req, res) => {
-      const { uid } = req.user;
-      try {
-        // 1️⃣ Lấy và xoá file cũ
-        const old = await pool.query(
-          "SELECT id_documents FROM employees WHERE firebase_uid = $1",
-          [uid]
-        );
-        const oldFiles = old.rows[0]?.id_documents || [];
-        oldFiles.forEach(rel => {
-          const p = path.join(__dirname, "..", rel);
-          if (fs.existsSync(p)) fs.unlinkSync(p);
-        });
-  
-        // 2️⃣ Lưu file mới và cập nhật DB
-        const filePaths = req.files.map(f => `/uploads/id_documents/${f.filename}`);
+    try {
         const result = await pool.query(
-          `UPDATE employees
-              SET id_documents = $1,
-                  id_document_status = 'In Review'
-            WHERE firebase_uid = $2
-            RETURNING id_documents, id_document_status`,
-          [filePaths, uid]
+            `UPDATE employees 
+             SET certifications = $1, certification_status = 'In Review' 
+             WHERE firebase_uid = $2 
+             RETURNING *`,
+            [filePaths, uid]
         );
-        if (!result.rows.length) {
-          return res.status(404).json({ error: "Employee not found" });
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Employee not found" });
         }
+
         res.json({
-          message: "ID Documents uploaded, status set to In Review",
-          id_documents: result.rows[0].id_documents,
-          id_document_status: result.rows[0].id_document_status,
+            message: "Certifications uploaded, status set to In Review",
+            certifications: filePaths,
+            certification_status: 'In Review'
         });
-      } catch (err) {
+    } catch (err) {
+        console.error("❌ Error uploading certifications:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+router.post("/upload/id_documents", verifyToken, upload.array("files"), async (req, res) => {
+    const { uid } = req.user;
+    const filePaths = req.files.map(f => `/uploads/id_documents/${f.filename}`);
+
+    try {
+        const result = await pool.query(
+            `UPDATE employees 
+             SET id_documents = $1, id_document_status = 'In Review' 
+             WHERE firebase_uid = $2 
+             RETURNING *`,
+            [filePaths, uid]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Employee not found" });
+        }
+
+        res.json({
+            message: "ID Documents uploaded, status set to In Review",
+            id_documents: filePaths,
+            id_document_status: 'In Review'
+        });
+    } catch (err) {
         console.error("❌ Error uploading ID documents:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
-      }
     }
-  );
-
+});
 router.patch("/update-status", verifyToken, attachUserRole, async (req, res) => {
     const { uid, role } = req.user;
     const { employee_id, type, status } = req.body;
