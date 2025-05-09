@@ -173,9 +173,25 @@ router.post('/upload/avatar', verifyToken, upload.single('avatar'), async (req, 
 });
 router.post("/upload/certifications", verifyToken, upload.array("files"), async (req, res) => {
     const { uid } = req.user;
-    const filePaths = req.files.map(f => `/uploads/certifications/${f.filename}`);
 
     try {
+        // 1️⃣ Lấy danh sách certifications cũ
+        const old = await pool.query(
+            `SELECT certifications FROM employees WHERE firebase_uid = $1`,
+            [uid]
+        );
+        if (old.rows.length > 0) {
+            const oldFiles = old.rows[0].certifications || [];
+            oldFiles.forEach(relPath => {
+                const absPath = path.join(__dirname, '..', relPath);
+                if (fs.existsSync(absPath)) {
+                    fs.unlinkSync(absPath);
+                }
+            });
+        }
+
+        // 2️⃣ Tạo filePaths mới và cập nhật DB
+        const filePaths = req.files.map(f => `/uploads/certifications/${f.filename}`);
         const result = await pool.query(
             `UPDATE employees 
              SET certifications = $1, certification_status = 'In Review' 
@@ -183,7 +199,6 @@ router.post("/upload/certifications", verifyToken, upload.array("files"), async 
              RETURNING *`,
             [filePaths, uid]
         );
-
         if (result.rows.length === 0) {
             return res.status(404).json({ error: "Employee not found" });
         }
@@ -198,11 +213,28 @@ router.post("/upload/certifications", verifyToken, upload.array("files"), async 
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 router.post("/upload/id_documents", verifyToken, upload.array("files"), async (req, res) => {
     const { uid } = req.user;
-    const filePaths = req.files.map(f => `/uploads/id_documents/${f.filename}`);
 
     try {
+        // 1️⃣ Lấy danh sách id_documents cũ
+        const old = await pool.query(
+            `SELECT id_documents FROM employees WHERE firebase_uid = $1`,
+            [uid]
+        );
+        if (old.rows.length > 0) {
+            const oldFiles = old.rows[0].id_documents || [];
+            oldFiles.forEach(relPath => {
+                const absPath = path.join(__dirname, '..', relPath);
+                if (fs.existsSync(absPath)) {
+                    fs.unlinkSync(absPath);
+                }
+            });
+        }
+
+        // 2️⃣ Tạo filePaths mới và cập nhật DB
+        const filePaths = req.files.map(f => `/uploads/id_documents/${f.filename}`);
         const result = await pool.query(
             `UPDATE employees 
              SET id_documents = $1, id_document_status = 'In Review' 
@@ -210,7 +242,6 @@ router.post("/upload/id_documents", verifyToken, upload.array("files"), async (r
              RETURNING *`,
             [filePaths, uid]
         );
-
         if (result.rows.length === 0) {
             return res.status(404).json({ error: "Employee not found" });
         }
@@ -225,6 +256,7 @@ router.post("/upload/id_documents", verifyToken, upload.array("files"), async (r
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 router.patch("/update-status", verifyToken, attachUserRole, async (req, res) => {
     const { uid, role } = req.user;
     const { employee_id, type, status } = req.body;
