@@ -233,7 +233,7 @@ router.patch("/update-status", verifyToken, attachUserRole, async (req, res) => 
         return res.status(403).json({ error: "Access denied" });
     }
 
-    if (!['certification_status', 'id_document_status'].includes(type) || !['Approved', 'In Review'].includes(status)) {
+    if (!['certification_status', 'id_document_status'].includes(type) || !['Approved', 'In Review', 'Rejected'].includes(status)) {
         return res.status(400).json({ error: "Invalid type or status" });
     }
 
