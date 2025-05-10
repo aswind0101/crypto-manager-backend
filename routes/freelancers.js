@@ -2,6 +2,8 @@ import express from "express";
 import pkg from "pg";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { sendVerifyEmail } from "../utils/sendVerifyEmail.js";
+
 
 const { Pool } = pkg;
 const router = express.Router();
@@ -9,6 +11,42 @@ const router = express.Router();
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
+});
+// GET: /api/freelancers/verify?token=abc123
+router.get("/verify", async (req, res) => {
+    const { token } = req.query;
+
+    if (!token) {
+        return res.status(400).json({ error: "Missing token" });
+    }
+
+    try {
+        const result = await pool.query(`
+      SELECT id, is_verified FROM freelancers WHERE verify_token = $1
+    `, [token]);
+
+        if (result.rows.length === 0) {
+            return res.status(400).json({ error: "Invalid or expired token" });
+        }
+
+        const freelancer = result.rows[0];
+
+        if (freelancer.is_verified) {
+            return res.status(200).json({ message: "Account already verified." });
+        }
+
+        await pool.query(`
+      UPDATE freelancers
+      SET is_verified = true, verify_token = NULL
+      WHERE id = $1
+    `, [freelancer.id]);
+
+        return res.status(200).json({ message: "✅ Your account has been verified successfully!" });
+
+    } catch (err) {
+        console.error("❌ Error verifying token:", err.message);
+        return res.status(500).json({ error: "Internal Server Error" });
+    }
 });
 
 // POST: /api/freelancers/register
@@ -70,7 +108,11 @@ router.post("/register", async (req, res) => {
             temp_salon_phone || null,
             verifyToken
         ]);
-
+        await sendVerifyEmail({
+            to: email,
+            name,
+            token: verifyToken
+        });
         // TODO: gửi email xác minh
         return res.status(201).json({
             message: "Freelancer registered. Please check your email to verify.",
