@@ -205,51 +205,38 @@ router.post(
     async (req, res) => {
         const { uid } = req.user;
         try {
-            // 1️⃣ Lấy và xóa file cũ
+            // 1️⃣ Lấy và xoá file cũ
             const old = await pool.query(
                 "SELECT certifications FROM employees WHERE firebase_uid = $1",
                 [uid]
             );
             const oldFiles = old.rows[0]?.certifications || [];
             oldFiles.forEach(rel => {
-                const abs = path.join(__dirname, "..", rel);
-                if (fs.existsSync(abs)) fs.unlinkSync(abs);
+                const p = path.join(__dirname, "..", rel);
+                if (fs.existsSync(p)) fs.unlinkSync(p);
             });
 
             // 2️⃣ Lưu file mới và cập nhật DB
             const filePaths = req.files.map(f => `/uploads/certifications/${f.filename}`);
-            const update = await pool.query(
+            const result = await pool.query(
                 `UPDATE employees
               SET certifications = $1,
                   certification_status = 'In Review'
             WHERE firebase_uid = $2
-            RETURNING certifications, certification_status, salon_id`,
+            RETURNING certifications, certification_status`,
                 [filePaths, uid]
             );
-            if (!update.rows.length) {
+            if (!result.rows.length) {
                 return res.status(404).json({ error: "Employee not found" });
             }
-            const { certifications, certification_status, salon_id } = update.rows[0];
-
-            // 3️⃣ Emit sự kiện real-time đến room của salon này
-            const io = req.app.get("io");
-            if (io && salon_id) {
-                io.to(`salon_${salon_id}`).emit("certificationsUpdated", {
-                    employeeUid: uid,
-                    certifications,
-                    certification_status,
-                });
-            }
-
-            // 4️⃣ Trả response về client
-            return res.json({
+            res.json({
                 message: "Certifications uploaded, status set to In Review",
-                certifications,
-                certification_status,
+                certifications: result.rows[0].certifications,
+                certification_status: result.rows[0].certification_status,
             });
         } catch (err) {
             console.error("❌ Error uploading certifications:", err.message);
-            return res.status(500).json({ error: "Internal Server Error" });
+            res.status(500).json({ error: "Internal Server Error" });
         }
     }
 );
@@ -261,124 +248,71 @@ router.post(
     async (req, res) => {
         const { uid } = req.user;
         try {
-            // 1️⃣ Lấy và xóa file ID Documents cũ
+            // 1️⃣ Lấy và xoá file cũ
             const old = await pool.query(
                 "SELECT id_documents FROM employees WHERE firebase_uid = $1",
                 [uid]
             );
             const oldFiles = old.rows[0]?.id_documents || [];
             oldFiles.forEach(rel => {
-                const abs = path.join(__dirname, "..", rel);
-                if (fs.existsSync(abs)) fs.unlinkSync(abs);
+                const p = path.join(__dirname, "..", rel);
+                if (fs.existsSync(p)) fs.unlinkSync(p);
             });
 
             // 2️⃣ Lưu file mới và cập nhật DB
             const filePaths = req.files.map(f => `/uploads/id_documents/${f.filename}`);
-            const update = await pool.query(
+            const result = await pool.query(
                 `UPDATE employees
               SET id_documents = $1,
                   id_document_status = 'In Review'
             WHERE firebase_uid = $2
-            RETURNING id_documents, id_document_status, salon_id`,
+            RETURNING id_documents, id_document_status`,
                 [filePaths, uid]
             );
-            if (!update.rows.length) {
+            if (!result.rows.length) {
                 return res.status(404).json({ error: "Employee not found" });
             }
-            const { id_documents, id_document_status, salon_id } = update.rows[0];
-
-            // 3️⃣ Emit real-time cho room salon
-            const io = req.app.get("io");
-            if (io && salon_id) {
-                io.to(`salon_${salon_id}`).emit("idDocumentsUpdated", {
-                    employeeUid: uid,
-                    id_documents,
-                    id_document_status,
-                });
-            }
-
-            // 4️⃣ Trả response về client
-            return res.json({
+            res.json({
                 message: "ID Documents uploaded, status set to In Review",
-                id_documents,
-                id_document_status,
+                id_documents: result.rows[0].id_documents,
+                id_document_status: result.rows[0].id_document_status,
             });
         } catch (err) {
             console.error("❌ Error uploading ID documents:", err.message);
-            return res.status(500).json({ error: "Internal Server Error" });
+            res.status(500).json({ error: "Internal Server Error" });
         }
     }
 );
 
-router.patch(
-    "/update-status",
-    verifyToken,
-    attachUserRole,
-    async (req, res) => {
-        const { uid, role } = req.user;
-        const { employee_id, type, status } = req.body;
+router.patch("/update-status", verifyToken, attachUserRole, async (req, res) => {
+    const { uid, role } = req.user;
+    const { employee_id, type, status } = req.body;
 
-        // 1️⃣ quyền chỉ Salon_Chu hoặc SuperAdmin
-        if (role !== "Salon_Chu" && !SUPER_ADMINS.includes(uid)) {
-            return res.status(403).json({ error: "Access denied" });
-        }
-        // 2️⃣ validate type & status
-        const validTypes = ["certification_status", "id_document_status"];
-        const validStatus = ["Approved", "In Review", "Rejected"];
-        if (!validTypes.includes(type) || !validStatus.includes(status)) {
-            return res.status(400).json({ error: "Invalid type or status" });
-        }
-
-        try {
-            // 3️⃣ UPDATE và trả về thêm firebase_uid, salon_id
-            const { rows } = await pool.query(
-                `UPDATE employees
-              SET ${type} = $1
-            WHERE id = $2
-            RETURNING id, firebase_uid, salon_id, certification_status, id_document_status`,
-                [status, employee_id]
-            );
-            if (!rows.length) {
-                return res.status(404).json({ error: "Employee not found" });
-            }
-
-            const updated = rows[0];
-
-            // 4️⃣ Emit real-time
-            const io = req.app.get("io");
-            if (io) {
-                // a) Notify the employee
-                const empRoom = `employee_${updated.firebase_uid}`;
-                if (type === "certification_status") {
-                    io.to(empRoom).emit("certificationStatusUpdated", {
-                        certification_status: updated.certification_status,
-                    });
-                } else {
-                    io.to(empRoom).emit("idDocumentStatusUpdated", {
-                        id_document_status: updated.id_document_status,
-                    });
-                }
-
-                // b) (Optional) Notify the salon owner view so they can refresh list
-                const salonRoom = `salon_${updated.salon_id}`;
-                io.to(salonRoom).emit("employeeStatusChanged", {
-                    employee_id: updated.id,
-                    type,
-                    status,
-                });
-            }
-
-            // 5️⃣ Response
-            return res.json({
-                message: `${type} updated`,
-                [type]: status,
-            });
-        } catch (err) {
-            console.error("❌ Error updating status:", err.message);
-            return res.status(500).json({ error: "Internal Server Error" });
-        }
+    if (role !== 'Salon_Chu' && !SUPER_ADMINS.includes(uid)) {
+        return res.status(403).json({ error: "Access denied" });
     }
-);
+
+    if (!['certification_status', 'id_document_status'].includes(type) || !['Approved', 'In Review', 'Rejected'].includes(status)) {
+        return res.status(400).json({ error: "Invalid type or status" });
+    }
+
+    try {
+        const result = await pool.query(
+            `UPDATE employees SET ${type} = $1 WHERE id = $2 RETURNING *`,
+            [status, employee_id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Employee not found" });
+        }
+
+        res.json({ message: `${type} updated`, [type]: status });
+    } catch (err) {
+        console.error("❌ Error updating status:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
 router.delete("/:id", verifyToken, attachUserRole, async (req, res) => {
     const { uid, role: userRole } = req.user;
     const { id } = req.params;

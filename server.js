@@ -4,8 +4,6 @@ import dotenv from "dotenv";
 import axios from "axios";
 import coinListRoute from './routes/coinList.js';
 import { sendAlertEmail } from "./utils/sendAlertEmail.js";
-import { createServer } from "http";
-import { Server as IOServer } from "socket.io";
 
 
 
@@ -462,25 +460,6 @@ app.get("/", (req, res) => {
     res.send("Crypto Manager API is running...");
 });
 
-// 🚀 Tạo HTTP server và Socket.IO
-const httpServer = createServer(app);
-const io = new IOServer(httpServer, {
-  cors: { origin: "*" }
-});
-
-// Lưu instance IO vào app để có thể dùng trong route
-app.set("io", io);
-
-// Khi client kết nối
-io.on("connection", (socket) => {
-  console.log("🟢 Socket connected:", socket.id);
-  // client sẽ emit 'joinRoom' (xem phần client)
-  socket.on("joinRoom", (room) => {
-    socket.join(room);
-    console.log(`→ Joined room ${room}`);
-  });
-});
-
-httpServer.listen(PORT, () => {
-  console.log(`🌐 Server running on port ${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
 });
