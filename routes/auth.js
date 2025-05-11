@@ -16,21 +16,21 @@ const pool = new Pool({
 // auth.js hoặc freelancers.js
 router.get("/freelancers/check", async (req, res) => {
     const { email } = req.query;
-    if (!email) return res.status(400).json({ exists: false });
+    if (!email) return res.status(400).json({ exists: false, is_verified: false });
 
     try {
-        const check = await pool.query("SELECT id FROM freelancers WHERE email = $1", [email]);
+        const check = await pool.query("SELECT id, is_verified FROM freelancers WHERE email = $1", [email]);
         if (check.rows.length > 0) {
             res.json({ exists: true, is_verified: check.rows[0].is_verified });
         } else {
             res.json({ exists: false, is_verified: false });
         }
-
     } catch (err) {
         console.error("Error checking freelancer:", err.message);
-        res.status(500).json({ exists: false });
+        res.status(500).json({ exists: false, is_verified: false });
     }
 });
+
 // ✅ API: Lấy role user hiện tại
 router.get("/user-role", verifyToken, async (req, res) => {
     const { uid, email } = req.user;
