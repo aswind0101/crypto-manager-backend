@@ -81,7 +81,7 @@ router.post("/upload/id", verifyToken, upload.single("id_doc"), async (req, res)
     if (oldPath && fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
 
     // 💾 Cập nhật file mới
-    await pool.query("UPDATE freelancers SET id_doc_url = $1 WHERE email = $2", [idUrl, email]);
+    await pool.query("UPDATE freelancers SET id_doc_url = $1, id_doc_status = 'In Review' WHERE email = $2", [idUrl, email]);
 
     res.json({ success: true, id_doc_url: idUrl });
   } catch (err) {
@@ -108,7 +108,7 @@ router.post("/upload/license", verifyToken, upload.single("license"), async (req
     if (oldPath && fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
 
     // 💾 Cập nhật license mới
-    await pool.query("UPDATE freelancers SET license_url = $1 WHERE email = $2", [licenseUrl, email]);
+    await pool.query("UPDATE freelancers SET license_url = $1, license_status = 'In Review' WHERE email = $2", [licenseUrl, email]);
 
     res.json({ success: true, license_url: licenseUrl });
   } catch (err) {
