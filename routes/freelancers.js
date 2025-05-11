@@ -17,24 +17,25 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false },
 });
 
-// Polyfill __dirname trong ESM
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Multer cấu hình cho avatar
+// 🌐 Multer: phân thư mục theo URL
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const dir = path.join(__dirname, "..", "uploads", "avatars");
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        cb(null, dir);
-    },
-    filename: (req, file, cb) => {
-        const ext = path.extname(file.originalname);
-        const uid = req.user.uid || "user"; // fallback nếu uid không có
-        const timestamp = Date.now();
-        cb(null, `${uid}_${timestamp}${ext}`);
-    },
+  destination: (req, file, cb) => {
+    let dir = "uploads/avatars";
+    if (req.originalUrl.includes("license")) dir = "uploads/licenses";
+    if (req.originalUrl.includes("id")) dir = "uploads/id_documents";
+    const fullPath = path.join(__dirname, "..", dir);
+    if (!fs.existsSync(fullPath)) fs.mkdirSync(fullPath, { recursive: true });
+    cb(null, fullPath);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${req.user.uid}_${Date.now()}${ext}`);
+  },
 });
+
 const upload = multer({ storage });
 
 // ✅ POST /api/freelancers/upload/avatar
@@ -62,6 +63,32 @@ router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, 
         console.error("❌ Upload avatar error:", err.message);
         res.status(500).json({ error: "Failed to update freelancer avatar" });
     }
+});
+// ✅ POST /api/freelancers/upload/license
+router.post("/upload/license", verifyToken, upload.single("license"), async (req, res) => {
+  const { email } = req.user;
+  const file = req.file;
+
+  if (!file || !email) {
+    return res.status(400).json({ error: "Missing file or email" });
+  }
+
+  const licenseUrl = `/uploads/licenses/${file.filename}`;
+
+  try {
+    // 🗑 Lấy license cũ và xoá nếu có
+    const old = await pool.query("SELECT license_url FROM freelancers WHERE email = $1", [email]);
+    const oldPath = old.rows[0]?.license_url && path.join(__dirname, "..", old.rows[0].license_url);
+    if (oldPath && fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+
+    // 💾 Cập nhật license mới
+    await pool.query("UPDATE freelancers SET license_url = $1 WHERE email = $2", [licenseUrl, email]);
+
+    res.json({ success: true, license_url: licenseUrl });
+  } catch (err) {
+    console.error("❌ Upload license error:", err.message);
+    res.status(500).json({ error: "Failed to update freelancer license" });
+  }
 });
 // GET: /api/freelancers/verify?token=abc123
 router.get("/verify", verifyToken, async (req, res) => {
