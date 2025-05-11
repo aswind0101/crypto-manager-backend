@@ -12,6 +12,7 @@ const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
 });
+
 // GET: /api/freelancers/verify?token=abc123
 router.get("/verify", async (req, res) => {
     const { token } = req.query;
@@ -48,7 +49,52 @@ router.get("/verify", async (req, res) => {
         return res.status(500).json({ error: "Internal Server Error" });
     }
 });
+// ✅ Gửi lại email xác minh
+router.get("/resend-verify", async (req, res) => {
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ error: "Missing email" });
 
+    try {
+        const result = await pool.query(
+            `SELECT id, name, is_verified, verify_token FROM freelancers WHERE email = $1`,
+            [email]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Email not found" });
+        }
+
+        const freelancer = result.rows[0];
+
+        if (freelancer.is_verified) {
+            return res.status(400).json({ error: "Account already verified" });
+        }
+
+        // Nếu chưa có token thì tạo mới
+        let token = freelancer.verify_token;
+        if (!token) {
+            const crypto = await import('crypto');
+            token = crypto.randomBytes(32).toString("hex");
+
+            await pool.query(
+                `UPDATE freelancers SET verify_token = $1 WHERE id = $2`,
+                [token, freelancer.id]
+            );
+        }
+
+        // Gửi lại email xác minh
+        await sendVerifyEmail({
+            to: email,
+            name: freelancer.name || "Freelancer",
+            token
+        });
+
+        res.json({ message: "✅ Verification email resent" });
+    } catch (err) {
+        console.error("❌ Error resending verify email:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
 // POST: /api/freelancers/register
 router.post("/register", async (req, res) => {
     const {
