@@ -220,5 +220,32 @@ router.post("/register", async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+// 📌 GET /api/freelancers/onboarding
+router.get("/onboarding", verifyToken, async (req, res) => {
+    const { uid } = req.user;
+
+    try {
+        const result = await pool.query(
+            `SELECT
+         avatar_url IS NOT NULL AS has_avatar,
+         license_url IS NOT NULL AS has_license,
+         id_doc_url IS NOT NULL AS has_id,
+         salon_id IS NOT NULL AS has_salon,
+         payment_info IS NOT NULL AS has_payment
+       FROM freelancers
+       WHERE firebase_uid = $1`,
+            [uid]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Freelancer not found" });
+        }
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error("❌ Error fetching onboarding status:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
 
 export default router;
