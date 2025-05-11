@@ -13,7 +13,19 @@ const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
 });
+// auth.js hoặc freelancers.js
+router.get("/freelancers/check", async (req, res) => {
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ exists: false });
 
+    try {
+        const check = await pool.query("SELECT id FROM freelancers WHERE email = $1", [email]);
+        res.json({ exists: check.rows.length > 0 });
+    } catch (err) {
+        console.error("Error checking freelancer:", err.message);
+        res.status(500).json({ exists: false });
+    }
+});
 // ✅ API: Lấy role user hiện tại
 router.get("/user-role", verifyToken, async (req, res) => {
     const { uid, email } = req.user;
