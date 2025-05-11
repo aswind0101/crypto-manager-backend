@@ -30,7 +30,9 @@ const storage = multer.diskStorage({
     },
     filename: (req, file, cb) => {
         const ext = path.extname(file.originalname);
-        cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+        const uid = req.user.uid || "user"; // fallback nếu uid không có
+        const timestamp = Date.now();
+        cb(null, `${uid}_${timestamp}${ext}`);
     },
 });
 const upload = multer({ storage });
