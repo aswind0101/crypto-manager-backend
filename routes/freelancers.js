@@ -64,6 +64,32 @@ router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, 
         res.status(500).json({ error: "Failed to update freelancer avatar" });
     }
 });
+router.post("/upload/id", verifyToken, upload.single("id_doc"), async (req, res) => {
+  const { email } = req.user;
+  const file = req.file;
+
+  if (!file || !email) {
+    return res.status(400).json({ error: "Missing file or email" });
+  }
+
+  const idUrl = `/uploads/id_documents/${file.filename}`;
+
+  try {
+    // 🧹 Xoá file cũ nếu có
+    const old = await pool.query("SELECT id_doc_url FROM freelancers WHERE email = $1", [email]);
+    const oldPath = old.rows[0]?.id_doc_url && path.join(__dirname, "..", old.rows[0].id_doc_url);
+    if (oldPath && fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+
+    // 💾 Cập nhật file mới
+    await pool.query("UPDATE freelancers SET id_doc_url = $1 WHERE email = $2", [idUrl, email]);
+
+    res.json({ success: true, id_doc_url: idUrl });
+  } catch (err) {
+    console.error("❌ Upload ID error:", err.message);
+    res.status(500).json({ error: "Failed to update freelancer ID" });
+  }
+});
+
 // ✅ POST /api/freelancers/upload/license
 router.post("/upload/license", verifyToken, upload.single("license"), async (req, res) => {
   const { email } = req.user;
