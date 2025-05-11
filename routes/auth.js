@@ -20,7 +20,12 @@ router.get("/freelancers/check", async (req, res) => {
 
     try {
         const check = await pool.query("SELECT id FROM freelancers WHERE email = $1", [email]);
-        res.json({ exists: check.rows.length > 0 });
+        if (check.rows.length > 0) {
+            res.json({ exists: true, is_verified: check.rows[0].is_verified });
+        } else {
+            res.json({ exists: false, is_verified: false });
+        }
+
     } catch (err) {
         console.error("Error checking freelancer:", err.message);
         res.status(500).json({ exists: false });
