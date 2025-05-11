@@ -3,7 +3,11 @@ import pkg from "pg";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { sendVerifyEmail } from "../utils/sendVerifyEmail.js";
-
+import verifyToken from "../middleware/verifyToken.js";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
 
 const { Pool } = pkg;
 const router = express.Router();
@@ -13,6 +17,50 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false },
 });
 
+// Polyfill __dirname trong ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Multer cấu hình cho avatar
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const dir = path.join(__dirname, "..", "uploads", "avatars");
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+    },
+});
+const upload = multer({ storage });
+
+// ✅ POST /api/freelancers/upload/avatar
+router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, res) => {
+    const { email } = req.user;
+    const file = req.file;
+
+    if (!email || !file) {
+        return res.status(400).json({ error: "Missing email or file" });
+    }
+
+    const avatarUrl = `/uploads/avatars/${file.filename}`;
+
+    try {
+        // Lấy avatar cũ và xoá (nếu có)
+        const old = await pool.query("SELECT avatar_url FROM freelancers WHERE email = $1", [email]);
+        const oldPath = old.rows[0]?.avatar_url && path.join(__dirname, "..", old.rows[0].avatar_url);
+        if (oldPath && fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+
+        // Cập nhật avatar mới
+        await pool.query("UPDATE freelancers SET avatar_url = $1 WHERE email = $2", [avatarUrl, email]);
+
+        res.json({ success: true, avatar_url: avatarUrl });
+    } catch (err) {
+        console.error("❌ Upload avatar error:", err.message);
+        res.status(500).json({ error: "Failed to update freelancer avatar" });
+    }
+});
 // GET: /api/freelancers/verify?token=abc123
 router.get("/verify", async (req, res) => {
     const { token } = req.query;
