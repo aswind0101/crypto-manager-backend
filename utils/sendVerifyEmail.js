@@ -1,7 +1,8 @@
 import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-const APP_BASE_URL = "https://onetool.it.com"
+const APP_BASE_URL = "https://onetool.it.com";
+
 export async function sendVerifyEmail({ to, name, token }) {
   const link = `${APP_BASE_URL}/verify?token=${token}`;
 
@@ -21,10 +22,11 @@ export async function sendVerifyEmail({ to, name, token }) {
 
   try {
     const result = await resend.emails.send({
-      from: 'Nails & Hair <noreply@onetool.it.com>',
+      from: 'OneTool Team <support@onetool.it.com>',
       to,
       subject: '🧾 Please verify your email',
-      html
+      html,
+      text: `Welcome, ${name}! Please verify your email: ${link}`
     });
 
     console.log("✅ Email sent to:", to);
