@@ -133,22 +133,43 @@ router.post("/", verifyToken, attachUserRole, async (req, res) => {
 
     const { salon_id, name, phone, email: empEmail, role } = req.body;
 
-    if (!name || !role || !salon_id) {
-        return res.status(400).json({ error: "Name, role, and salon_id are required" });
+    if (!name || !role || !salon_id || !empEmail) {
+        return res.status(400).json({ error: "Name, role, salon_id, and email are required" });
     }
 
     try {
+        // 1️⃣ Kiểm tra xem user đã có trong bảng users chưa
+        const checkUser = await pool.query("SELECT * FROM users WHERE email = $1", [empEmail]);
+
+        let firebase_uid = null;
+
+        if (checkUser.rows.length > 0) {
+            const user = checkUser.rows[0];
+
+            // 2️⃣ Nếu role là 'Salon_Freelancers' → cập nhật thành 'Salon_NhanVien'
+            if (user.role === "Salon_Freelancers") {
+                await pool.query("UPDATE users SET role = 'Salon_NhanVien' WHERE email = $1", [empEmail]);
+            }
+
+            // 3️⃣ Lấy firebase_uid để gán cho employees
+            firebase_uid = user.firebase_uid;
+        }
+
+        // 4️⃣ Chèn vào bảng employees
         const result = await pool.query(
-            `INSERT INTO employees (salon_id, name, phone, email, role, is_freelancer)
-             VALUES ($1, $2, $3, $4, $5, false) RETURNING *`,
-            [salon_id, name, phone, empEmail, role]
+            `INSERT INTO employees (salon_id, name, phone, email, role, is_freelancer, firebase_uid)
+       VALUES ($1, $2, $3, $4, $5, false, $6)
+       RETURNING *`,
+            [salon_id, name, phone, empEmail, role, firebase_uid]
         );
+
         res.status(201).json(result.rows[0]);
     } catch (err) {
-        console.error("Error adding employee:", err.message);
+        console.error("❌ Error adding employee:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 // API: Upload avatar
 // API: Upload avatar (xóa avatar cũ trước khi lưu mới)
 router.post(
