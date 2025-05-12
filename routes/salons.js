@@ -47,6 +47,39 @@ router.get("/me", verifyToken, async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+// ✅ GET: /api/salons/by-id
+router.get("/by-id", verifyToken, async (req, res) => {
+    const { uid } = req.user;
+
+    try {
+        // 🔍 Lấy salon_id từ bảng freelancers
+        const resultFreelancer = await pool.query(
+            `SELECT salon_id FROM freelancers WHERE firebase_uid = $1`,
+            [uid]
+        );
+
+        if (resultFreelancer.rows.length === 0 || !resultFreelancer.rows[0].salon_id) {
+            return res.status(404).json({ error: "Salon not assigned for this user" });
+        }
+
+        const salonId = resultFreelancer.rows[0].salon_id;
+
+        // 🔍 Lấy thông tin salon từ ID
+        const resultSalon = await pool.query(
+            `SELECT id, name, address, phone, email FROM salons WHERE id = $1`,
+            [salonId]
+        );
+
+        if (resultSalon.rows.length === 0) {
+            return res.status(404).json({ error: "Salon not found" });
+        }
+
+        res.json(resultSalon.rows[0]);
+    } catch (err) {
+        console.error("❌ Error fetching salon by ID:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
 
 // GET: Lấy danh sách salon đang hoạt động
 router.get("/active", async (req, res) => {
