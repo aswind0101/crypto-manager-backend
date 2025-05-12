@@ -101,7 +101,7 @@ router.get("/:id", verifyToken, async (req, res) => {
     }
 });
 // GET: Lấy danh sách salon đang hoạt động
-router.get("/active", async (req, res) => {
+router.get("/active", verifyToken, async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT id, name, address, phone FROM salons WHERE status = 'active' ORDER BY name ASC`
