@@ -47,6 +47,19 @@ router.get("/me", verifyToken, async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+// GET: Lấy danh sách salon đang hoạt động
+router.get("/active", verifyToken, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT id, name, address, phone FROM salons WHERE status = 'active' ORDER BY name ASC`
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error("❌ Error fetching active salons:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
 // ✅ GET: /api/salons/by-id
 router.get("/by-id", verifyToken, async (req, res) => {
     const { uid } = req.user;
@@ -97,18 +110,6 @@ router.get("/:id", verifyToken, async (req, res) => {
         res.json(result.rows[0]);
     } catch (err) {
         console.error("❌ Error fetching salon by ID:", err.message);
-        res.status(500).json({ error: "Internal Server Error" });
-    }
-});
-// GET: Lấy danh sách salon đang hoạt động
-router.get("/active", verifyToken, async (req, res) => {
-    try {
-        const result = await pool.query(
-            `SELECT id, name, address, phone FROM salons WHERE status = 'active' ORDER BY name ASC`
-        );
-        res.json(result.rows);
-    } catch (err) {
-        console.error("❌ Error fetching active salons:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
