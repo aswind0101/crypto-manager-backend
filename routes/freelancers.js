@@ -367,9 +367,9 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
     }
 
     try {
-        // Kiểm tra salon có tồn tại và đang hoạt động không
+        // 1️⃣ Kiểm tra salon có tồn tại và active không
         const check = await pool.query(
-            `SELECT id FROM salons WHERE id = $1 AND status = 'active'`,
+            `SELECT id, name, address, phone FROM salons WHERE id = $1 AND status = 'active'`,
             [salon_id]
         );
 
@@ -377,10 +377,17 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
             return res.status(404).json({ error: "Salon not found or inactive" });
         }
 
-        // Cập nhật vào bảng freelancers
+        const salon = check.rows[0];
+
+        // 2️⃣ Cập nhật salon_id + lưu thông tin tạm vào bảng freelancers
         await pool.query(
-            `UPDATE freelancers SET salon_id = $1 WHERE firebase_uid = $2`,
-            [salon_id, uid]
+            `UPDATE freelancers
+             SET salon_id = $1,
+                 temp_salon_name = $2,
+                 temp_salon_address = $3,
+                 temp_salon_phone = $4
+             WHERE firebase_uid = $5`,
+            [salon_id, salon.name, salon.address, salon.phone, uid]
         );
 
         res.json({ message: "Salon selected successfully" });
@@ -389,5 +396,6 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 
 export default router;
