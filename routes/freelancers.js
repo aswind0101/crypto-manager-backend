@@ -354,5 +354,37 @@ router.patch("/verify-doc", verifyToken, async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+// PATCH: Freelancer chọn salon
+router.patch("/select-salon", verifyToken, async (req, res) => {
+    const { uid } = req.user;
+    const { salon_id } = req.body;
+
+    if (!salon_id) {
+        return res.status(400).json({ error: "Missing salon_id" });
+    }
+
+    try {
+        // Kiểm tra salon có tồn tại và đang hoạt động không
+        const check = await pool.query(
+            `SELECT id FROM salons WHERE id = $1 AND status = 'active'`,
+            [salon_id]
+        );
+
+        if (check.rows.length === 0) {
+            return res.status(404).json({ error: "Salon not found or inactive" });
+        }
+
+        // Cập nhật vào bảng freelancers
+        await pool.query(
+            `UPDATE freelancers SET salon_id = $1 WHERE firebase_uid = $2`,
+            [salon_id, uid]
+        );
+
+        res.json({ message: "Salon selected successfully" });
+    } catch (err) {
+        console.error("❌ Error selecting salon:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
 
 export default router;
