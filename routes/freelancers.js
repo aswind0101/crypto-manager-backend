@@ -304,5 +304,55 @@ router.get("/onboarding", verifyToken, async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+const SUPER_ADMINS = ["D9nW6SLT2pbUuWbNVnCgf2uINok2"];
+
+router.get("/pending-docs", verifyToken, async (req, res) => {
+    const { uid } = req.user;
+
+    if (!SUPER_ADMINS.includes(uid)) {
+        return res.status(403).json({ error: "Access denied" });
+    }
+
+    try {
+        const result = await pool.query(`
+      SELECT id, name, email, avatar_url, license_url, id_doc_url,
+             license_status, id_doc_status
+      FROM freelancers
+      WHERE license_status = 'In Review' OR id_doc_status = 'In Review'
+    `);
+
+        res.json(result.rows);
+    } catch (err) {
+        console.error("❌ Error loading pending docs:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+router.patch("/verify-doc", verifyToken, async (req, res) => {
+    const { uid } = req.user;
+
+    if (!SUPER_ADMINS.includes(uid)) {
+        return res.status(403).json({ error: "Access denied" });
+    }
+
+    const { email, field, status } = req.body;
+
+    if (!email || !["license", "id_doc"].includes(field) || !["Approved", "Rejected"].includes(status)) {
+        return res.status(400).json({ error: "Invalid input" });
+    }
+
+    const fieldName = field === "license" ? "license_status" : "id_doc_status";
+
+    try {
+        await pool.query(
+            `UPDATE freelancers SET ${fieldName} = $1 WHERE email = $2`,
+            [status, email]
+        );
+
+        res.json({ message: `✅ ${field} status updated to ${status}` });
+    } catch (err) {
+        console.error("❌ Error updating doc status:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
 
 export default router;
