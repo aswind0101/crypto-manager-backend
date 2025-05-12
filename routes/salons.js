@@ -80,7 +80,26 @@ router.get("/by-id", verifyToken, async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+// ✅ GET: /api/salons/:id – lấy thông tin salon theo ID
+router.get("/:id", verifyToken, async (req, res) => {
+    const { id } = req.params;
 
+    try {
+        const result = await pool.query(
+            `SELECT id, name, address, phone, email, status FROM salons WHERE id = $1`,
+            [id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Salon not found" });
+        }
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error("❌ Error fetching salon by ID:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
 // GET: Lấy danh sách salon đang hoạt động
 router.get("/active", async (req, res) => {
     try {

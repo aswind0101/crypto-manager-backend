@@ -288,7 +288,10 @@ router.get("/onboarding", verifyToken, async (req, res) => {
      salon_id IS NOT NULL AS has_salon,
      payment_info IS NOT NULL AS has_payment,
      license_status,
-     id_doc_status
+     id_doc_status,
+     avatar_url,
+     license_url,
+     id_doc_url
    FROM freelancers
    WHERE firebase_uid = $1`,
             [uid]
