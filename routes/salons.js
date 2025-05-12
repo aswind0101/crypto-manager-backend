@@ -31,16 +31,23 @@ router.get("/", verifyToken, async (req, res) => {
 router.get("/me", verifyToken, async (req, res) => {
     const { uid } = req.user;
     try {
-        const result = await pool.query(`SELECT id, name FROM salons WHERE owner_user_id = $1`, [uid]);
+        const result = await pool.query(`
+            SELECT id, name, address, phone, email 
+            FROM salons 
+            WHERE owner_user_id = $1
+        `, [uid]);
+
         if (result.rows.length === 0) {
             return res.status(404).json({ error: "Salon not found for this user" });
         }
+
         res.json(result.rows[0]);
     } catch (err) {
         console.error("❌ Error fetching salon for owner:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 // GET: Lấy danh sách salon đang hoạt động
 router.get("/active", async (req, res) => {
     try {
