@@ -58,6 +58,13 @@ router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, 
         // Cập nhật avatar mới
         await pool.query("UPDATE freelancers SET avatar_url = $1 WHERE email = $2", [avatarUrl, email]);
 
+        // Nếu có trong bảng employees → cập nhật luôn
+        await pool.query(`
+            UPDATE employees
+            SET avatar_url = $1
+            WHERE firebase_uid = $2
+        `, [avatarUrl, uid]);
+
         res.json({ success: true, avatar_url: avatarUrl });
     } catch (err) {
         console.error("❌ Upload avatar error:", err.message);
@@ -82,6 +89,12 @@ router.post("/upload/id", verifyToken, upload.single("id_doc"), async (req, res)
 
         // 💾 Cập nhật file mới
         await pool.query("UPDATE freelancers SET id_doc_url = $1, id_doc_status = 'In Review' WHERE email = $2", [idUrl, email]);
+        // Nếu có trong bảng employees → cập nhật luôn
+        await pool.query(`
+            UPDATE employees
+            SET id_documents = ARRAY[$1], id_document_status = 'In Review'
+            WHERE firebase_uid = $2
+        `, [idUrl, uid]);
 
         res.json({ success: true, id_doc_url: idUrl });
     } catch (err) {
@@ -109,6 +122,12 @@ router.post("/upload/license", verifyToken, upload.single("license"), async (req
 
         // 💾 Cập nhật license mới
         await pool.query("UPDATE freelancers SET license_url = $1, license_status = 'In Review' WHERE email = $2", [licenseUrl, email]);
+        // Nếu có trong bảng employees → cập nhật luôn
+        await pool.query(`
+            UPDATE employees
+            SET certifications = ARRAY[$1], certification_status = 'In Review'
+            WHERE firebase_uid = $2
+        `, [licenseUrl, uid]);
 
         res.json({ success: true, license_url: licenseUrl });
     } catch (err) {
