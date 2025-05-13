@@ -425,28 +425,34 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
             [uid, salon_id]
         );
 
-        if (checkEmp.rows.length === 0) {
-            // 5️⃣ Nếu chưa có ➝ tạo mới bản ghi nhân viên dạng freelancer
+        if (checkEmp.rows.length > 0) {
+            // Nếu đã từng bị từ chối ➝ chuyển lại thành inactive
+            await pool.query(
+                `UPDATE employees SET status = 'inactive' WHERE id = $1`,
+                [checkEmp.rows[0].id]
+            );
+        } else {
+            // Chưa có ➝ insert mới
             await pool.query(
                 `INSERT INTO employees (
-            salon_id, firebase_uid, name, phone, email,
-            role, status, is_freelancer,
-            avatar_url, certifications, id_documents,
-            certification_status, id_document_status
-        )
-        VALUES (
-            $1, $2, $3, $4, $5,
-            $6, 'inactive', true,
-            $7, ARRAY[$8], ARRAY[$9],
-            'In Review', 'In Review'
-        )`,
+      salon_id, firebase_uid, name, phone, email,
+      role, status, is_freelancer,
+      avatar_url, certifications, id_documents,
+      certification_status, id_document_status
+    )
+    VALUES (
+      $1, $2, $3, $4, $5,
+      $6, 'inactive', true,
+      $7, ARRAY[$8], ARRAY[$9],
+      'In Review', 'In Review'
+    )`,
                 [
                     salon_id,
                     uid,
                     freelancer.name,
                     freelancer.phone,
                     freelancer.email,
-                    freelancer.specialization || 'freelancer', // 👈 dùng specialization làm role
+                    freelancer.specialization || 'freelancer',
                     freelancer.avatar_url,
                     freelancer.license_url,
                     freelancer.id_doc_url,
