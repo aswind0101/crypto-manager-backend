@@ -240,8 +240,8 @@ router.post("/register", async (req, res) => {
     } = req.body;
 
     // Kiểm tra bắt buộc
-    if (!name || !email || !password) {
-        return res.status(400).json({ error: "Name, email, and password are required" });
+    if (!name || !email || !password || !phone || !address || !gender || !birthday || !about || !experience || !specialization) {
+        return res.status(400).json({ error: "All fields are required." });
     }
 
     try {
@@ -429,23 +429,24 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
             // 5️⃣ Nếu chưa có ➝ tạo mới bản ghi nhân viên dạng freelancer
             await pool.query(
                 `INSERT INTO employees (
-                    salon_id, firebase_uid, name, phone, email,
-                    role, status, is_freelancer,
-                    avatar_url, certifications, id_documents,
-                    certification_status, id_document_status
-                )
-                VALUES (
-                    $1, $2, $3, $4, $5,
-                    'freelancer', 'inactive', true,
-                    $6, ARRAY[$7], ARRAY[$8],
-                    'In Review', 'In Review'
-                )`,
+            salon_id, firebase_uid, name, phone, email,
+            role, status, is_freelancer,
+            avatar_url, certifications, id_documents,
+            certification_status, id_document_status
+        )
+        VALUES (
+            $1, $2, $3, $4, $5,
+            $6, 'inactive', true,
+            $7, ARRAY[$8], ARRAY[$9],
+            'In Review', 'In Review'
+        )`,
                 [
                     salon_id,
                     uid,
                     freelancer.name,
                     freelancer.phone,
                     freelancer.email,
+                    freelancer.specialization || 'freelancer', // 👈 dùng specialization làm role
                     freelancer.avatar_url,
                     freelancer.license_url,
                     freelancer.id_doc_url,
