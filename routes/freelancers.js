@@ -73,7 +73,7 @@ router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, 
     }
 });
 router.post("/upload/id", verifyToken, upload.single("id_doc"), async (req, res) => {
-    const { email,uid } = req.user;
+    const { email, uid } = req.user;
     const file = req.file;
 
     if (!file || !email) {
@@ -106,7 +106,7 @@ router.post("/upload/id", verifyToken, upload.single("id_doc"), async (req, res)
 
 // ✅ POST /api/freelancers/upload/license
 router.post("/upload/license", verifyToken, upload.single("license"), async (req, res) => {
-    const { email,uid } = req.user;
+    const { email, uid } = req.user;
     const file = req.file;
 
     if (!file || !email) {
@@ -235,7 +235,8 @@ router.post("/register", async (req, res) => {
         is_freelancer,           // boolean
         temp_salon_name,         // nếu có
         temp_salon_address,
-        temp_salon_phone
+        temp_salon_phone,
+        specialization
     } = req.body;
 
     // Kiểm tra bắt buộc
@@ -258,10 +259,10 @@ router.post("/register", async (req, res) => {
         const result = await pool.query(`
             INSERT INTO freelancers 
                 (name, email, password, phone, address, gender, birthday, about, experience, is_freelancer,
-                 temp_salon_name, temp_salon_address, temp_salon_phone, verify_token)
+                 temp_salon_name, temp_salon_address, temp_salon_phone, verify_token, specialization)
             VALUES 
                 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                 $11, $12, $13, $14)
+         $11, $12, $13, $14, $15)
             RETURNING id
         `, [
             name,
@@ -277,7 +278,8 @@ router.post("/register", async (req, res) => {
             temp_salon_name || null,
             temp_salon_address || null,
             temp_salon_phone || null,
-            verifyToken
+            verifyToken,
+            specialization || null
         ]);
         await sendVerifyEmail({
             to: email,
