@@ -412,7 +412,7 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
 
         // 3️⃣ Lấy thông tin freelancer để sync vào bảng employees
         const result = await pool.query(
-            `SELECT name, email, phone, avatar_url, license_url, id_doc_url
+            `SELECT name, email, phone, avatar_url, license_url, id_doc_url, specialization
              FROM freelancers
              WHERE firebase_uid = $1`,
             [uid]
