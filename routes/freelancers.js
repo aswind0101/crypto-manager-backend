@@ -73,7 +73,7 @@ router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, 
     }
 });
 router.post("/upload/id", verifyToken, upload.single("id_doc"), async (req, res) => {
-    const { email } = req.user;
+    const { email,uid } = req.user;
     const file = req.file;
 
     if (!file || !email) {
@@ -106,7 +106,7 @@ router.post("/upload/id", verifyToken, upload.single("id_doc"), async (req, res)
 
 // ✅ POST /api/freelancers/upload/license
 router.post("/upload/license", verifyToken, upload.single("license"), async (req, res) => {
-    const { email } = req.user;
+    const { email,uid } = req.user;
     const file = req.file;
 
     if (!file || !email) {
