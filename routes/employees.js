@@ -334,6 +334,52 @@ router.patch("/update-status", verifyToken, attachUserRole, async (req, res) => 
     }
 });
 
+router.patch("/freelancers-approve", verifyToken, attachUserRole, async (req, res) => {
+    const { uid, role } = req.user;
+    const { employee_id, action } = req.body;
+
+    if (role !== 'Salon_Chu') {
+        return res.status(403).json({ error: "Access denied" });
+    }
+
+    if (!employee_id || !["approve", "reject"].includes(action)) {
+        return res.status(400).json({ error: "Invalid input" });
+    }
+
+    try {
+        // Tìm salon của chủ salon hiện tại
+        const salonRes = await pool.query(`SELECT id FROM salons WHERE owner_user_id = $1`, [uid]);
+        if (salonRes.rows.length === 0) {
+            return res.status(404).json({ error: "Salon not found for this owner" });
+        }
+
+        const salonId = salonRes.rows[0].id;
+
+        // Xác nhận freelancer thuộc salon của chủ đó và đang chờ duyệt
+        const check = await pool.query(`
+            SELECT id FROM employees
+            WHERE id = $1 AND salon_id = $2 AND is_freelancer = true AND status = 'inactive'
+        `, [employee_id, salonId]);
+
+        if (check.rows.length === 0) {
+            return res.status(404).json({ error: "Freelancer not found or already processed" });
+        }
+
+        // Thực hiện cập nhật
+        const newStatus = action === "approve" ? "active" : "rejected";
+
+        const update = await pool.query(`
+            UPDATE employees SET status = $1 WHERE id = $2 RETURNING *
+        `, [newStatus, employee_id]);
+
+        res.json({ message: `✅ Freelancer ${action}d`, employee: update.rows[0] });
+    } catch (err) {
+        console.error("❌ Error approving freelancer:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
+
 router.delete("/:id", verifyToken, attachUserRole, async (req, res) => {
     const { uid, role: userRole } = req.user;
     const { id } = req.params;
@@ -354,6 +400,38 @@ router.delete("/:id", verifyToken, attachUserRole, async (req, res) => {
         res.json({ message: "Employee deleted" });
     } catch (err) {
         console.error("❌ Error deleting employee:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+// ✅ Lấy danh sách freelancer cần duyệt (Salon Chủ)
+router.get("/freelancers-pending", verifyToken, attachUserRole, async (req, res) => {
+    const { uid, role } = req.user;
+
+    if (role !== "Salon_Chu") {
+        return res.status(403).json({ error: "Access denied" });
+    }
+
+    try {
+        // Lấy salon_id mà chủ salon sở hữu
+        const salonRes = await pool.query(`SELECT id FROM salons WHERE owner_user_id = $1`, [uid]);
+        if (salonRes.rows.length === 0) {
+            return res.status(404).json({ error: "Salon not found for this owner" });
+        }
+
+        const salonId = salonRes.rows[0].id;
+
+        // Lấy freelancers đang inactive
+        const empRes = await pool.query(`
+            SELECT id, name, email, avatar_url, role, status, certifications, id_documents,
+                   certification_status, id_document_status
+            FROM employees
+            WHERE is_freelancer = true AND status = 'inactive' AND salon_id = $1
+            ORDER BY id DESC
+        `, [salonId]);
+
+        res.json(empRes.rows);
+    } catch (err) {
+        console.error("❌ Error loading freelancers for salon owner:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
