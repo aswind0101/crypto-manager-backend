@@ -367,19 +367,17 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
     }
 
     try {
-        // 1️⃣ Kiểm tra salon có tồn tại và active không
-        const check = await pool.query(
+        // 1️⃣ Kiểm tra salon có tồn tại và đang hoạt động
+        const checkSalon = await pool.query(
             `SELECT id, name, address, phone FROM salons WHERE id = $1 AND status = 'active'`,
             [salon_id]
         );
-
-        if (check.rows.length === 0) {
+        if (checkSalon.rows.length === 0) {
             return res.status(404).json({ error: "Salon not found or inactive" });
         }
+        const salon = checkSalon.rows[0];
 
-        const salon = check.rows[0];
-
-        // 2️⃣ Cập nhật salon_id + lưu thông tin tạm vào bảng freelancers
+        // 2️⃣ Cập nhật salon_id và thông tin tạm thời trong bảng freelancers
         await pool.query(
             `UPDATE freelancers
              SET salon_id = $1,
@@ -390,12 +388,56 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
             [salon_id, salon.name, salon.address, salon.phone, uid]
         );
 
-        res.json({ message: "Salon selected successfully" });
+        // 3️⃣ Lấy thông tin freelancer để sync vào bảng employees
+        const result = await pool.query(
+            `SELECT name, email, phone, avatar_url, license_url, id_doc_url
+             FROM freelancers
+             WHERE firebase_uid = $1`,
+            [uid]
+        );
+        const freelancer = result.rows[0];
+
+        // 4️⃣ Kiểm tra xem đã có trong bảng employees hay chưa
+        const checkEmp = await pool.query(
+            `SELECT id FROM employees WHERE firebase_uid = $1 AND salon_id = $2`,
+            [uid, salon_id]
+        );
+
+        if (checkEmp.rows.length === 0) {
+            // 5️⃣ Nếu chưa có ➝ tạo mới bản ghi nhân viên dạng freelancer
+            await pool.query(
+                `INSERT INTO employees (
+                    salon_id, firebase_uid, name, phone, email,
+                    role, status, is_freelancer,
+                    avatar_url, certifications, id_documents,
+                    certification_status, id_document_status
+                )
+                VALUES (
+                    $1, $2, $3, $4, $5,
+                    'freelancer', 'inactive', true,
+                    $6, ARRAY[$7], ARRAY[$8],
+                    'In Review', 'In Review'
+                )`,
+                [
+                    salon_id,
+                    uid,
+                    freelancer.name,
+                    freelancer.phone,
+                    freelancer.email,
+                    freelancer.avatar_url,
+                    freelancer.license_url,
+                    freelancer.id_doc_url,
+                ]
+            );
+        }
+
+        res.json({ message: "Salon selected and synced to employees" });
     } catch (err) {
         console.error("❌ Error selecting salon:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 
 
 export default router;
