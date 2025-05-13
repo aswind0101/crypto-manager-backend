@@ -40,7 +40,8 @@ const upload = multer({ storage });
 
 // ✅ POST /api/freelancers/upload/avatar
 router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, res) => {
-    const { email } = req.user;
+    const { email, uid } = req.user;
+
     const file = req.file;
 
     if (!email || !file) {
@@ -56,7 +57,7 @@ router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, 
         if (oldPath && fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
 
         // Cập nhật avatar mới
-        await pool.query("UPDATE freelancers SET avatar_url = $1 WHERE email = $2", [avatarUrl, email]);
+        await pool.query("UPDATE freelancers SET avatar_url = $1 WHERE firebase_uid = $2", [avatarUrl, uid]);
 
         // Nếu có trong bảng employees → cập nhật luôn
         await pool.query(`
@@ -88,7 +89,7 @@ router.post("/upload/id", verifyToken, upload.single("id_doc"), async (req, res)
         if (oldPath && fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
 
         // 💾 Cập nhật file mới
-        await pool.query("UPDATE freelancers SET id_doc_url = $1, id_doc_status = 'In Review' WHERE email = $2", [idUrl, email]);
+        await pool.query("UPDATE freelancers SET id_doc_url = $1, id_doc_status = 'In Review' WHERE firebase_uid = $2", [idUrl, uid]);
         // Nếu có trong bảng employees → cập nhật luôn
         await pool.query(`
             UPDATE employees
@@ -121,7 +122,7 @@ router.post("/upload/license", verifyToken, upload.single("license"), async (req
         if (oldPath && fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
 
         // 💾 Cập nhật license mới
-        await pool.query("UPDATE freelancers SET license_url = $1, license_status = 'In Review' WHERE email = $2", [licenseUrl, email]);
+        await pool.query("UPDATE freelancers SET license_url = $1, license_status = 'In Review' WHERE firebase_uid = $2", [licenseUrl, uid]);
         // Nếu có trong bảng employees → cập nhật luôn
         await pool.query(`
             UPDATE employees
