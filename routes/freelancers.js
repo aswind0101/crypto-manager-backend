@@ -61,17 +61,19 @@ router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, 
         if (oldPath && fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
 
         // Cập nhật avatar mới
-        await pool.query("UPDATE freelancers SET avatar_url = $1 WHERE firebase_uid = $2", [avatarUrl, uid]);
+        const result = await pool.query(
+            "UPDATE freelancers SET avatar_url = $1 WHERE firebase_uid = $2 RETURNING *",
+            [avatarUrl, uid]
+        );
         console.log("👤 Freelancer updated:", result.rowCount > 0 ? "✅ Success" : "❌ No match found");
 
         // Nếu có trong bảng employees → cập nhật luôn
-        await pool.query(`
-            UPDATE employees
-            SET avatar_url = $1
-            WHERE firebase_uid = $2
-        `, [avatarUrl, uid]);
-        console.log("👤 Freelancer updated:", result.rowCount > 0 ? "✅ Success" : "❌ No match found");
-        
+        const emp = await pool.query(
+            `UPDATE employees SET avatar_url = $1 WHERE firebase_uid = $2 RETURNING *`,
+            [avatarUrl, uid]
+        );
+        console.log("🧑‍💼 Employee updated:", emp.rowCount > 0 ? "✅ Yes" : "❌ Not found");
+
         res.json({ success: true, avatar_url: avatarUrl });
     } catch (err) {
         console.error("❌ Upload avatar error:", err.message);
