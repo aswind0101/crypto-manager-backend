@@ -474,16 +474,7 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
-router.get("/check", verifyToken, async (req, res) => {
-  const { uid } = req.user;
-  try {
-    const check = await pool.query("SELECT id FROM freelancers WHERE firebase_uid = $1", [uid]);
-    return res.json({ exists: check.rows.length > 0 });
-  } catch (err) {
-    console.error("❌ Error checking freelancer by uid:", err.message);
-    return res.status(500).json({ error: "Internal Server Error" });
-  }
-});
+
 
 
 export default router;
