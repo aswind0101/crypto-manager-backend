@@ -44,11 +44,15 @@ router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, 
 
     const file = req.file;
 
+    console.log("📩 Email:", email);
+    console.log("🔐 UID:", uid);
+    console.log("📂 Uploaded File:", file?.originalname || "❌ No file received");
     if (!email || !file) {
         return res.status(400).json({ error: "Missing email or file" });
     }
 
     const avatarUrl = `/uploads/avatars/${file.filename}`;
+    console.log("🖼️ Avatar URL to save:", avatarUrl);
 
     try {
         // Lấy avatar cũ và xoá (nếu có)
@@ -58,6 +62,7 @@ router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, 
 
         // Cập nhật avatar mới
         await pool.query("UPDATE freelancers SET avatar_url = $1 WHERE firebase_uid = $2", [avatarUrl, uid]);
+        console.log("👤 Freelancer updated:", result.rowCount > 0 ? "✅ Success" : "❌ No match found");
 
         // Nếu có trong bảng employees → cập nhật luôn
         await pool.query(`
@@ -65,7 +70,8 @@ router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, 
             SET avatar_url = $1
             WHERE firebase_uid = $2
         `, [avatarUrl, uid]);
-
+        console.log("👤 Freelancer updated:", result.rowCount > 0 ? "✅ Success" : "❌ No match found");
+        
         res.json({ success: true, avatar_url: avatarUrl });
     } catch (err) {
         console.error("❌ Upload avatar error:", err.message);
