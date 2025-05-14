@@ -390,19 +390,29 @@ router.delete("/:id", verifyToken, attachUserRole, async (req, res) => {
     }
 
     try {
-        const result = await pool.query(
-            `DELETE FROM employees WHERE id = $1 RETURNING *`,
-            [id]
-        );
-        if (result.rows.length === 0) {
+        // 1️⃣ Lấy firebase_uid và email của employee
+        const check = await pool.query(`SELECT firebase_uid, email FROM employees WHERE id = $1`, [id]);
+        if (check.rows.length === 0) {
             return res.status(404).json({ error: "Employee not found" });
         }
-        res.json({ message: "Employee deleted" });
+        const { firebase_uid, email } = check.rows[0];
+
+        // 2️⃣ Xóa employee
+        await pool.query(`DELETE FROM employees WHERE id = $1`, [id]);
+
+        // 3️⃣ Kiểm tra role trong bảng users
+        const checkUser = await pool.query(`SELECT id, role FROM users WHERE firebase_uid = $1`, [firebase_uid]);
+        if (checkUser.rows.length > 0 && checkUser.rows[0].role === "Salon_NhanVien") {
+            await pool.query(`DELETE FROM users WHERE firebase_uid = $1`, [firebase_uid]);
+        }
+
+        res.json({ message: "Employee (and user if applicable) deleted successfully" });
     } catch (err) {
         console.error("❌ Error deleting employee:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 // ✅ Lấy danh sách freelancer cần duyệt (Salon Chủ)
 router.get("/freelancers-pending", verifyToken, attachUserRole, async (req, res) => {
     const { uid, role } = req.user;

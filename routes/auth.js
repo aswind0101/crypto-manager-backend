@@ -85,12 +85,12 @@ router.get("/user-role", verifyToken, async (req, res) => {
             return res.status(200).json({ role: "Salon_Freelancers" });
         }
 
-        // 5️⃣ Nếu không khớp gì ➝ Khách hàng
+        // 5️⃣ Nếu không khớp gì ➝ Crypto (mặc định người dùng hệ thống đầu tư)
         await pool.query(
             "INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, $3)",
-            [uid, email, "KhachHang"]
+            [uid, email, "Crypto"]
         );
-        return res.status(200).json({ role: "KhachHang" });
+        return res.status(200).json({ role: "Crypto" });
 
     } catch (err) {
         console.error("❌ Error fetching user role:", err.message);
