@@ -13,6 +13,23 @@ const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
 });
+// auth.js hoặc freelancers.js
+router.get("/freelancers/check", async (req, res) => {
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ exists: false, is_verified: false });
+
+    try {
+        const check = await pool.query("SELECT id, is_verified FROM freelancers WHERE email = $1", [email]);
+        if (check.rows.length > 0) {
+            res.json({ exists: true, is_verified: check.rows[0].is_verified });
+        } else {
+            res.json({ exists: false, is_verified: false });
+        }
+    } catch (err) {
+        console.error("Error checking freelancer:", err.message);
+        res.status(500).json({ exists: false, is_verified: false });
+    }
+});
 
 // ✅ API: Lấy role user hiện tại
 router.get("/user-role", verifyToken, async (req, res) => {
@@ -26,54 +43,60 @@ router.get("/user-role", verifyToken, async (req, res) => {
             return res.status(200).json({ role: userCheck.rows[0].role });
         }
 
-        // 2️⃣ Nếu chưa có trong bảng users, check xem email có thuộc salon nào không?
+        // 2️⃣ Check nếu là chủ salon (email khớp với bảng salons)
         const salonCheck = await pool.query("SELECT id FROM salons WHERE email = $1", [email]);
-
         if (salonCheck.rows.length > 0) {
-            // ➔ Salon có email khớp ➔ Gán role = Salon_Chu
             await pool.query(
                 "INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, $3)",
                 [uid, email, "Salon_Chu"]
             );
-
-            // Update salons.owner_user_id nếu chưa gán
             await pool.query(
                 "UPDATE salons SET owner_user_id = $1 WHERE email = $2 AND (owner_user_id IS NULL OR owner_user_id = '')",
                 [uid, email]
             );
-
             return res.status(200).json({ role: "Salon_Chu" });
         }
 
-        // Check bảng employees → gán Salon_NhanVien
+        // 3️⃣ Check nếu là nhân viên salon
         const employeeCheck = await pool.query("SELECT id FROM employees WHERE email = $1", [email]);
-
         if (employeeCheck.rows.length > 0) {
             await pool.query(
                 "INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, $3)",
                 [uid, email, "Salon_NhanVien"]
             );
-
             await pool.query(
                 "UPDATE employees SET firebase_uid = $1 WHERE email = $2 AND (firebase_uid IS NULL OR firebase_uid = '')",
                 [uid, email]
             );
-
             return res.status(200).json({ role: "Salon_NhanVien" });
         }
 
-        // 3️⃣ Nếu không khớp gì hết ➔ mặc định KhachHang
+        // 4️⃣ ✅ Check nếu là Freelancer
+        const freelancerCheck = await pool.query("SELECT id FROM freelancers WHERE email = $1", [email]);
+        if (freelancerCheck.rows.length > 0) {
+            await pool.query(
+                "INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, $3)",
+                [uid, email, "Salon_Freelancers"]
+            );
+            await pool.query(
+                "UPDATE freelancers SET firebase_uid = $1 WHERE email = $2 AND (firebase_uid IS NULL OR firebase_uid = '')",
+                [uid, email]
+            );
+            return res.status(200).json({ role: "Salon_Freelancers" });
+        }
+        // 5️⃣ Nếu không khớp gì ➝ Crypto (mặc định người dùng hệ thống đầu tư)
         await pool.query(
             "INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, $3)",
-            [uid, email, "KhachHang"]
+            [uid, email, "Crypto"]
         );
+        return res.status(200).json({ role: "Crypto" });
 
-        return res.status(200).json({ role: "KhachHang" });
     } catch (err) {
         console.error("❌ Error fetching user role:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 // POST: Đăng ký tài khoản mới
 router.post("/register", async (req, res) => {
     const { email, password, role } = req.body;
