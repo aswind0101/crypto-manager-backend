@@ -358,7 +358,7 @@ router.patch("/freelancers-approve", verifyToken, attachUserRole, async (req, re
         // Xác nhận freelancer thuộc salon của chủ đó và đang chờ duyệt
         const check = await pool.query(`
             SELECT id FROM employees
-            WHERE id = $1 AND salon_id = $2 AND is_freelancer = true AND status = 'inactive'
+            WHERE id = $1 AND salon_id = $2 AND freelancers_system = true AND status = 'inactive'
         `, [employee_id, salonId]);
 
         if (check.rows.length === 0) {
