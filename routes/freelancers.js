@@ -461,7 +461,10 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
         if (checkEmp.rows.length > 0) {
             // Nếu đã từng bị từ chối ➝ chuyển lại thành inactive
             await pool.query(
-                `UPDATE employees SET status = 'inactive' WHERE id = $1`,
+                `UPDATE employees
+     SET status = 'inactive',
+         freelancers_system = true
+     WHERE id = $1`,
                 [checkEmp.rows[0].id]
             );
         } else {
@@ -471,13 +474,15 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
       salon_id, firebase_uid, name, phone, email,
       role, status, is_freelancer,
       avatar_url, certifications, id_documents,
-      certification_status, id_document_status
+      certification_status, id_document_status,
+      freelancers_system
     )
     VALUES (
       $1, $2, $3, $4, $5,
       $6, 'inactive', true,
       $7, ARRAY[$8], ARRAY[$9],
-      'In Review', 'In Review'
+      'In Review', 'In Review',
+      true
     )`,
                 [
                     salon_id,

@@ -435,7 +435,7 @@ router.get("/freelancers-pending", verifyToken, attachUserRole, async (req, res)
             SELECT id, name, email, avatar_url, role, status, certifications, id_documents,
                    certification_status, id_document_status
             FROM employees
-            WHERE is_freelancer = true AND status = 'inactive' AND salon_id = $1
+            WHERE freelancers_system = true AND status = 'inactive' AND salon_id = $1
             ORDER BY id DESC
         `, [salonId]);
 
