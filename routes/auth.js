@@ -84,22 +84,6 @@ router.get("/user-role", verifyToken, async (req, res) => {
             );
             return res.status(200).json({ role: "Salon_Freelancers" });
         }
-        // 3️⃣ Check nếu tồn tại trong cả employees và freelancers
-        if (employeeCheck.rows.length > 0 && freelancerCheck.rows.length > 0) {
-            await pool.query(
-                "INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, $3)",
-                [uid, email, "Salon_All"]
-            );
-            await pool.query(
-                "UPDATE employees SET firebase_uid = $1 WHERE email = $2 AND (firebase_uid IS NULL OR firebase_uid = '')",
-                [uid, email]
-            );
-            await pool.query(
-                "UPDATE freelancers SET firebase_uid = $1 WHERE email = $2 AND (firebase_uid IS NULL OR firebase_uid = '')",
-                [uid, email]
-            );
-            return res.status(200).json({ role: "Salon_All" });
-        }
         // 5️⃣ Nếu không khớp gì ➝ Crypto (mặc định người dùng hệ thống đầu tư)
         await pool.query(
             "INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, $3)",

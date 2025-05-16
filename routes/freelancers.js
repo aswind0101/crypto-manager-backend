@@ -153,9 +153,10 @@ router.get("/verify", verifyToken, async (req, res) => {
     }
 
     try {
+        // 1️⃣ Tìm freelancer theo token
         const result = await pool.query(`
-      SELECT id, is_verified FROM freelancers WHERE verify_token = $1
-    `, [token]);
+            SELECT id, is_verified, email FROM freelancers WHERE verify_token = $1
+        `, [token]);
 
         if (result.rows.length === 0) {
             return res.status(400).json({ error: "Invalid or expired token" });
@@ -167,13 +168,36 @@ router.get("/verify", verifyToken, async (req, res) => {
             return res.status(200).json({ message: "Account already verified." });
         }
 
+        // 2️⃣ Cập nhật trạng thái freelancer
         await pool.query(`
-  UPDATE freelancers
-  SET is_verified = true,
-      verify_token = NULL,
-      firebase_uid = $1
-  WHERE id = $2
-`, [req.user.uid, freelancer.id]);
+            UPDATE freelancers
+            SET is_verified = true,
+                verify_token = NULL,
+                firebase_uid = $1
+            WHERE id = $2
+        `, [req.user.uid, freelancer.id]);
+
+        // 3️⃣ Kiểm tra user đã có trong bảng users chưa
+        const userCheck = await pool.query(`SELECT id, role FROM users WHERE email = $1`, [freelancer.email]);
+
+        if (userCheck.rows.length > 0) {
+            // 4️⃣ Kiểm tra nếu user có trong bảng employees
+            const empCheck = await pool.query(`SELECT id FROM employees WHERE email = $1`, [freelancer.email]);
+
+            if (empCheck.rows.length > 0) {
+                // ✅ Nếu có trong employees → cập nhật role thành Salon_All
+                await pool.query(`
+                    UPDATE users SET role = 'Salon_All' WHERE id = $1
+                `, [userCheck.rows[0].id]);
+            }
+            // Nếu KHÔNG có trong employees thì KHÔNG thay đổi role
+        } else {
+            // 5️⃣ Nếu chưa có user ➜ thêm mới với role là Salon_Freelancers
+            await pool.query(`
+                INSERT INTO users (firebase_uid, email, role)
+                VALUES ($1, $2, 'Salon_Freelancers')
+            `, [req.user.uid, freelancer.email]);
+        }
 
         return res.status(200).json({ message: "✅ Your account has been verified successfully!" });
 
@@ -182,6 +206,7 @@ router.get("/verify", verifyToken, async (req, res) => {
         return res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 // ✅ Gửi lại email xác minh
 router.get("/resend-verify", async (req, res) => {
     const { email } = req.query;
@@ -466,6 +491,11 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
                     freelancer.id_doc_url,
                 ]
             );
+            // 5️⃣ Cập nhật role = 'Salon_All' trong bảng users nếu user đã tồn tại
+            const userCheck = await pool.query(`SELECT id FROM users WHERE firebase_uid = $1`, [uid]);
+            if (userCheck.rows.length > 0) {
+                await pool.query(`UPDATE users SET role = 'Salon_All' WHERE id = $1`, [userCheck.rows[0].id]);
+            }
         }
 
         res.json({ message: "Salon selected and synced to employees" });
@@ -475,14 +505,14 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
     }
 });
 router.get("/check", verifyToken, async (req, res) => {
-  const { uid } = req.user;
-  try {
-    const check = await pool.query("SELECT id FROM freelancers WHERE firebase_uid = $1", [uid]);
-    return res.json({ exists: check.rows.length > 0 });
-  } catch (err) {
-    console.error("❌ Error checking freelancer by uid:", err.message);
-    return res.status(500).json({ error: "Internal Server Error" });
-  }
+    const { uid } = req.user;
+    try {
+        const check = await pool.query("SELECT id FROM freelancers WHERE firebase_uid = $1", [uid]);
+        return res.json({ exists: check.rows.length > 0 });
+    } catch (err) {
+        console.error("❌ Error checking freelancer by uid:", err.message);
+        return res.status(500).json({ error: "Internal Server Error" });
+    }
 });
 
 
