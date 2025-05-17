@@ -145,7 +145,7 @@ router.post("/upload/license", verifyToken, upload.single("license"), async (req
     }
 });
 // GET: /api/freelancers/verify?token=abc123
-router.get("/verify", verifyToken, async (req, res) => {
+router.get("/verify", async (req, res) => {
     const { token } = req.query;
 
     if (!token) {
@@ -172,10 +172,9 @@ router.get("/verify", verifyToken, async (req, res) => {
         await pool.query(`
             UPDATE freelancers
             SET is_verified = true,
-                verify_token = NULL,
-                firebase_uid = $1
-            WHERE id = $2
-        `, [req.user.uid, freelancer.id]);
+                verify_token = NULL
+            WHERE id = $1
+        `, [freelancer.id]);
 
         // 3️⃣ Kiểm tra user đã có trong bảng users chưa
         const userCheck = await pool.query(`SELECT id, role FROM users WHERE email = $1`, [freelancer.email]);
@@ -185,18 +184,16 @@ router.get("/verify", verifyToken, async (req, res) => {
             const empCheck = await pool.query(`SELECT id FROM employees WHERE email = $1`, [freelancer.email]);
 
             if (empCheck.rows.length > 0) {
-                // ✅ Nếu có trong employees → cập nhật role thành Salon_All
                 await pool.query(`
                     UPDATE users SET role = 'Salon_All' WHERE id = $1
                 `, [userCheck.rows[0].id]);
             }
-            // Nếu KHÔNG có trong employees thì KHÔNG thay đổi role
         } else {
             // 5️⃣ Nếu chưa có user ➜ thêm mới với role là Salon_Freelancers
             await pool.query(`
-                INSERT INTO users (firebase_uid, email, role)
-                VALUES ($1, $2, 'Salon_Freelancers')
-            `, [req.user.uid, freelancer.email]);
+                INSERT INTO users (email, role)
+                VALUES ($1, 'Salon_Freelancers')
+            `, [freelancer.email]);
         }
 
         return res.status(200).json({ message: "✅ Your account has been verified successfully!" });
