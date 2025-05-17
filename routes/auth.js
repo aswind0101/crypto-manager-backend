@@ -49,6 +49,19 @@ router.get("/user-role", verifyToken, async (req, res) => {
             if (!userByEmail.rows[0].firebase_uid) {
                 await pool.query("UPDATE users SET firebase_uid = $1 WHERE email = $2", [uid, email]);
             }
+            // ✅ Dù sao cũng nên cập nhật luôn freelancers nếu có
+            // ✅ Cập nhật firebase_uid vào bảng freelancers nếu có email và chưa có UID
+            const freelancerCheck = await pool.query(`
+            SELECT id FROM freelancers 
+            WHERE email = $1 AND (firebase_uid IS NULL OR firebase_uid = '')
+            `, [email]);
+
+            if (freelancerCheck.rows.length > 0) {
+                await pool.query(
+                    "UPDATE freelancers SET firebase_uid = $1 WHERE email = $2",
+                    [uid, email]
+                );
+            }
 
             return res.status(200).json({ role: userByEmail.rows[0].role });
         }
