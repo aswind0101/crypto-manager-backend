@@ -39,8 +39,24 @@ router.get("/user-role", verifyToken, async (req, res) => {
         // 1️⃣ Nếu đã có user theo firebase_uid ➜ trả về role
         const userByUID = await pool.query("SELECT role FROM users WHERE firebase_uid = $1", [uid]);
         if (userByUID.rows.length > 0) {
-            return res.status(200).json({ role: userByUID.rows[0].role });
+            const role = userByUID.rows[0].role;
+
+            // ✅ Nếu role là nhân viên, nhưng user đã đăng ký freelancer ➜ cập nhật firebase_uid nếu chưa có
+            const freelancerCheck = await pool.query(`
+                SELECT id FROM freelancers 
+                WHERE email = $1 AND (firebase_uid IS NULL OR firebase_uid = '')
+            `, [email]);
+
+            if (freelancerCheck.rows.length > 0) {
+                await pool.query(
+                    "UPDATE freelancers SET firebase_uid = $1 WHERE email = $2",
+                    [uid, email]
+                );
+            }
+
+            return res.status(200).json({ role });
         }
+
 
         // 2️⃣ Nếu chưa có firebase_uid ➜ kiểm tra theo email
         const userByEmail = await pool.query("SELECT id, role, firebase_uid FROM users WHERE email = $1", [email]);
