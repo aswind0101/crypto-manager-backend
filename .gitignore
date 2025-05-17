@@ -37,6 +37,14 @@ firebase-service-account.json
 cron.js
 database
 
+.env
+.env.local
+*.env
+*.env.*
+*.json
+secure/
+
+
 # vercel
 .vercel
 
