@@ -36,20 +36,27 @@ router.get("/user-role", verifyToken, async (req, res) => {
     const { uid, email } = req.user;
 
     try {
-        // 1️⃣ Check trong bảng users
-        const userCheck = await pool.query("SELECT role FROM users WHERE firebase_uid = $1", [uid]);
-
-        if (userCheck.rows.length > 0) {
-            return res.status(200).json({ role: userCheck.rows[0].role });
+        // 1️⃣ Nếu đã có user theo firebase_uid ➜ trả về role
+        const userByUID = await pool.query("SELECT role FROM users WHERE firebase_uid = $1", [uid]);
+        if (userByUID.rows.length > 0) {
+            return res.status(200).json({ role: userByUID.rows[0].role });
         }
 
-        // 2️⃣ Check nếu là chủ salon (email khớp với bảng salons)
+        // 2️⃣ Nếu chưa có firebase_uid ➜ kiểm tra theo email
+        const userByEmail = await pool.query("SELECT id, role, firebase_uid FROM users WHERE email = $1", [email]);
+        if (userByEmail.rows.length > 0) {
+            // Nếu chưa có firebase_uid thì update
+            if (!userByEmail.rows[0].firebase_uid) {
+                await pool.query("UPDATE users SET firebase_uid = $1 WHERE email = $2", [uid, email]);
+            }
+
+            return res.status(200).json({ role: userByEmail.rows[0].role });
+        }
+
+        // 3️⃣ Nếu là chủ salon
         const salonCheck = await pool.query("SELECT id FROM salons WHERE email = $1", [email]);
         if (salonCheck.rows.length > 0) {
-            await pool.query(
-                "INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, $3)",
-                [uid, email, "Salon_Chu"]
-            );
+            await pool.query("INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, 'Salon_Chu')", [uid, email]);
             await pool.query(
                 "UPDATE salons SET owner_user_id = $1 WHERE email = $2 AND (owner_user_id IS NULL OR owner_user_id = '')",
                 [uid, email]
@@ -57,13 +64,10 @@ router.get("/user-role", verifyToken, async (req, res) => {
             return res.status(200).json({ role: "Salon_Chu" });
         }
 
-        // 3️⃣ Check nếu là nhân viên salon
-        const employeeCheck = await pool.query("SELECT id FROM employees WHERE email = $1", [email]);
-        if (employeeCheck.rows.length > 0) {
-            await pool.query(
-                "INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, $3)",
-                [uid, email, "Salon_NhanVien"]
-            );
+        // 4️⃣ Nếu là nhân viên salon
+        const empCheck = await pool.query("SELECT id FROM employees WHERE email = $1", [email]);
+        if (empCheck.rows.length > 0) {
+            await pool.query("INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, 'Salon_NhanVien')", [uid, email]);
             await pool.query(
                 "UPDATE employees SET firebase_uid = $1 WHERE email = $2 AND (firebase_uid IS NULL OR firebase_uid = '')",
                 [uid, email]
@@ -71,24 +75,19 @@ router.get("/user-role", verifyToken, async (req, res) => {
             return res.status(200).json({ role: "Salon_NhanVien" });
         }
 
-        // 4️⃣ ✅ Check nếu là Freelancer
+        // 5️⃣ Nếu là freelancer
         const freelancerCheck = await pool.query("SELECT id FROM freelancers WHERE email = $1", [email]);
         if (freelancerCheck.rows.length > 0) {
-            await pool.query(
-                "INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, $3)",
-                [uid, email, "Salon_Freelancers"]
-            );
+            await pool.query("INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, 'Salon_Freelancers')", [uid, email]);
             await pool.query(
                 "UPDATE freelancers SET firebase_uid = $1 WHERE email = $2 AND (firebase_uid IS NULL OR firebase_uid = '')",
                 [uid, email]
             );
             return res.status(200).json({ role: "Salon_Freelancers" });
         }
-        // 5️⃣ Nếu không khớp gì ➝ Crypto (mặc định người dùng hệ thống đầu tư)
-        await pool.query(
-            "INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, $3)",
-            [uid, email, "Crypto"]
-        );
+
+        // 6️⃣ Nếu không thuộc nhóm nào ➜ mặc định là Crypto
+        await pool.query("INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, 'Crypto')", [uid, email]);
         return res.status(200).json({ role: "Crypto" });
 
     } catch (err) {
