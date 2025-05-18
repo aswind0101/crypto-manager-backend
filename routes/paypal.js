@@ -62,4 +62,25 @@ router.post("/create-subscription", verifyToken, async (req, res) => {
         res.status(500).json({ error: "Subscription creation failed" });
     }
 });
+router.post("/save-subscription", verifyToken, async (req, res) => {
+  const { uid } = req.user;
+  const { subscription_id } = req.body;
+
+  if (!subscription_id) return res.status(400).json({ error: "Missing subscription ID" });
+
+  try {
+    await pool.query(
+      `UPDATE freelancers 
+       SET paypal_subscription_id = $1, paypal_connected = true 
+       WHERE firebase_uid = $2`,
+      [subscription_id, uid]
+    );
+
+    res.json({ message: "✅ Subscription saved successfully" });
+  } catch (err) {
+    console.error("❌ Error saving subscription:", err.message);
+    res.status(500).json({ error: "Failed to save subscription" });
+  }
+});
+
 export default router;
