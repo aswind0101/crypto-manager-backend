@@ -56,6 +56,8 @@ app.use(express.urlencoded({ extended: true }));
 //===========================Freelancer================================================================
 import freelancerRoutes from './routes/freelancers.js';
 app.use("/api/freelancers", freelancerRoutes);
+import paymentsRoute from './routes/payments.js';
+app.use("/api/payments", paymentsRoute);
 
 //=====================================================================================================
 
