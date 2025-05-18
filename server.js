@@ -57,9 +57,6 @@ app.use(express.urlencoded({ extended: true }));
 import freelancerRoutes from './routes/freelancers.js';
 app.use("/api/freelancers", freelancerRoutes);
 
-import paypalRoute from './routes/paypal.js';
-app.use("/api/paypal", paypalRoute);
-
 //=====================================================================================================
 
 
