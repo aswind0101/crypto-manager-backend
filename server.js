@@ -57,7 +57,9 @@ app.use(express.urlencoded({ extended: true }));
 import freelancerRoutes from './routes/freelancers.js';
 app.use("/api/freelancers", freelancerRoutes);
 
-//=====================================================================================================
+//==============================Customer=======================================================================
+import stylistsRoute from "./routes/stylists.js";
+app.use("/api", stylistsRoute);
 
 
 const pool = new Pool({
