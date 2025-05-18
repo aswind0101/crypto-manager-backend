@@ -2,42 +2,38 @@ import express from "express";
 import verifyToken from "../middleware/verifyToken.js";
 import paypal from '@paypal/checkout-server-sdk';
 import client from "../utils/paypal.js";
+import pkg from "pg";
+
+const { Pool } = pkg;
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+});
 
 const router = express.Router();
 
-router.post("/create-subscription", verifyToken, async (req, res) => {
-  try {
-    const request = new paypal.orders.OrdersCreateRequest();
-    request.prefer("return=representation");
-    request.requestBody({
-      intent: "CAPTURE",
-      purchase_units: [{
-        amount: {
-          currency_code: "USD",
-          value: "10.00" // 💵 phí bạn muốn thu mỗi lần nhận khách
-        },
-        description: "Freelancer service charge"
-      }],
-      application_context: {
-        brand_name: "CryptoManager",
-        user_action: "PAY_NOW",
-        return_url: `${process.env.FRONTEND_URL}/freelancers?paypal=success`,
-        cancel_url: `${process.env.FRONTEND_URL}/freelancers?paypal=cancel`
-      }
-    });
+// ✅ Gửi clientId cho frontend
+router.get("/client-id", (req, res) => {
+    res.json({ clientId: process.env.PAYPAL_CLIENT_ID });
+});
 
-    const order = await client.execute(request);
-    const approvalUrl = order.result.links.find(link => link.rel === "approve")?.href;
+// ✅ Lưu vault token sau khi freelancer kết nối PayPal
+router.post("/save-token", verifyToken, async (req, res) => {
+    const { uid } = req.user;
+    const { paypal_token } = req.body;
 
-    if (!approvalUrl) {
-      return res.status(400).json({ error: "Failed to get approval URL" });
+    if (!paypal_token) return res.status(400).json({ error: "Missing token" });
+
+    try {
+        await pool.query(
+            "UPDATE freelancers SET paypal_token = $1, paypal_connected = true WHERE firebase_uid = $2",
+            [paypal_token, uid]
+        );
+        res.json({ message: "PayPal token saved successfully" });
+    } catch (err) {
+        console.error("❌ Error saving PayPal token:", err.message);
+        res.status(500).json({ error: "Failed to save token" });
     }
-
-    res.json({ url: approvalUrl });
-  } catch (err) {
-    console.error("❌ Error creating PayPal order:", err.message);
-    res.status(500).json({ error: "PayPal order creation failed" });
-  }
 });
 
 export default router;
