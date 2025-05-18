@@ -123,57 +123,52 @@ router.post("/", verifyToken, async (req, res) => {
 
     const { name, address, phone, email, owner_user_id, status } = req.body;
 
-    // Check bắt buộc Name
-    if (!name) {
-        return res.status(400).json({ error: "Name is required" });
-    }
+    // Validate bắt buộc
+    if (!name) return res.status(400).json({ error: "Name is required" });
+    if (!email) return res.status(400).json({ error: "Email is required" });
 
-    // Check bắt buộc Email
-    if (!email) {
-        return res.status(400).json({ error: "Email is required" });
-    }
-
-    // Check định dạng email (simple regex)
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
         return res.status(400).json({ error: "Invalid email format" });
     }
 
     try {
-        // Kiểm tra xem email đã tồn tại chưa
+        // Check email trùng
         const emailCheck = await pool.query("SELECT id FROM salons WHERE email = $1", [email]);
         if (emailCheck.rows.length > 0) {
             return res.status(400).json({ error: "This email already exists in the system" });
         }
 
-        // Thêm salon mới
+        // Geocode address → lat/lng
+        let lat = null, lng = null;
+
         try {
             const encodedAddress = encodeURIComponent(address);
             const geoRes = await axios.get(
                 `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${process.env.GOOGLE_MAPS_API_KEY}`
             );
             const geo = geoRes.data.results[0];
-            const lat = geo?.geometry?.location?.lat || null;
-            const lng = geo?.geometry?.location?.lng || null;
-
-            const result = await pool.query(
-                `INSERT INTO salons (name, address, phone, email, owner_user_id, status, latitude, longitude)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-                [name, address || "", phone || "", email, owner_user_id || null, status || "active", lat, lng]
-            );
-
-            res.status(201).json(result.rows[0]);
-        } catch (err) {
-            console.error("❌ Error adding salon:", err.message);
-            res.status(500).json({ error: "Internal Server Error" });
+            lat = geo?.geometry?.location?.lat || null;
+            lng = geo?.geometry?.location?.lng || null;
+        } catch (geoErr) {
+            console.error("❌ Geocoding failed:", geoErr.message);
+            // Không dừng chương trình – vẫn insert nhưng không có lat/lng
         }
 
-        res.status(201).json(result.rows[0]);
+        // Insert salon
+        const result = await pool.query(
+            `INSERT INTO salons (name, address, phone, email, owner_user_id, status, latitude, longitude)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+            [name, address || "", phone || "", email, owner_user_id || null, status || "active", lat, lng]
+        );
+
+        return res.status(201).json(result.rows[0]);
     } catch (err) {
         console.error("❌ Error adding salon:", err.message);
-        res.status(500).json({ error: "Internal Server Error" });
+        return res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 
 // PATCH: Cập nhật salon
 router.patch("/:id", verifyToken, async (req, res) => {
