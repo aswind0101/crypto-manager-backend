@@ -147,7 +147,10 @@ router.post("/", verifyToken, async (req, res) => {
             const geoRes = await axios.get(
                 `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${process.env.GOOGLE_MAPS_API_KEY}`
             );
+            console.log("🌍 Geocode URL:", url);
             const geo = geoRes.data.results[0];
+            console.log("📦 Geocode response:", geo);
+            
             lat = geo?.geometry?.location?.lat || null;
             lng = geo?.geometry?.location?.lng || null;
         } catch (geoErr) {
