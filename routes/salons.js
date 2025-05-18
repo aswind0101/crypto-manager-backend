@@ -1,4 +1,5 @@
 // routes/salons.js
+import axios from "axios";
 import express from "express";
 import verifyToken from "../middleware/verifyToken.js";
 import pkg from "pg";
@@ -146,11 +147,26 @@ router.post("/", verifyToken, async (req, res) => {
         }
 
         // Thêm salon mới
-        const result = await pool.query(
-            `INSERT INTO salons (name, address, phone, email, owner_user_id, status)
-                VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-            [name, address || "", phone || "", email, owner_user_id || null, status || "active"]
-        );
+        try {
+            const encodedAddress = encodeURIComponent(address);
+            const geoRes = await axios.get(
+                `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${process.env.GOOGLE_MAPS_API_KEY}`
+            );
+            const geo = geoRes.data.results[0];
+            const lat = geo?.geometry?.location?.lat || null;
+            const lng = geo?.geometry?.location?.lng || null;
+
+            const result = await pool.query(
+                `INSERT INTO salons (name, address, phone, email, owner_user_id, status, latitude, longitude)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+                [name, address || "", phone || "", email, owner_user_id || null, status || "active", lat, lng]
+            );
+
+            res.status(201).json(result.rows[0]);
+        } catch (err) {
+            console.error("❌ Error adding salon:", err.message);
+            res.status(500).json({ error: "Internal Server Error" });
+        }
 
         res.status(201).json(result.rows[0]);
     } catch (err) {
