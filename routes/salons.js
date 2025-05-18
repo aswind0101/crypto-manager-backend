@@ -141,7 +141,7 @@ router.post("/", verifyToken, async (req, res) => {
 
         // Geocode address → lat/lng
         let lat = null, lng = null;
-
+        let url = "";
         try {
             const encodedAddress = encodeURIComponent(address);
             const geoRes = await axios.get(
@@ -150,11 +150,12 @@ router.post("/", verifyToken, async (req, res) => {
             console.log("🌍 Geocode URL:", url);
             const geo = geoRes.data.results[0];
             console.log("📦 Geocode response:", geo);
-            
+
             lat = geo?.geometry?.location?.lat || null;
             lng = geo?.geometry?.location?.lng || null;
         } catch (geoErr) {
             console.error("❌ Geocoding failed:", geoErr.message);
+
             // Không dừng chương trình – vẫn insert nhưng không có lat/lng
         }
 
@@ -168,6 +169,7 @@ router.post("/", verifyToken, async (req, res) => {
         return res.status(201).json(result.rows[0]);
     } catch (err) {
         console.error("❌ Error adding salon:", err.message);
+        console.error("❌ Google Error Response:", err.response?.data);
         return res.status(500).json({ error: "Internal Server Error" });
     }
 });
