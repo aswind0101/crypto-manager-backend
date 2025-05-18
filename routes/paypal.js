@@ -6,49 +6,39 @@ import pkg from "pg";
 
 const { Pool } = pkg;
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
 });
 
 const router = express.Router();
 
-// ✅ Gửi clientId cho frontend
-router.get("/client-id", (req, res) => {
-    res.json({ clientId: process.env.PAYPAL_CLIENT_ID });
+router.post("/create-subscription", verifyToken, async (req, res) => {
+  const { uid } = req.user;
+  const returnUrl = `${process.env.FRONTEND_URL}/freelancers?paypal=success`;
+  const cancelUrl = `${process.env.FRONTEND_URL}/freelancers?paypal=cancel`;
+
+  try {
+    const request = new paypal.subscriptions.SubscriptionCreateRequest();
+    request.requestBody({
+      plan_id: process.env.PAYPAL_PLAN_ID, // ✅ plan ID bạn đã tạo
+      application_context: {
+        brand_name: "CryptoManager",
+        locale: "en-US",
+        shipping_preference: "NO_SHIPPING",
+        user_action: "SUBSCRIBE_NOW",
+        return_url: returnUrl,
+        cancel_url: cancelUrl,
+      }
+    });
+
+    const subscription = await client.execute(request);
+    const approvalUrl = subscription.result.links.find(link => link.rel === "approve")?.href;
+
+    res.json({ url: approvalUrl });
+  } catch (err) {
+    console.error("❌ Error creating subscription:", err.message);
+    res.status(500).json({ error: "Subscription creation failed" });
+  }
 });
-
-// ✅ Lưu vault token sau khi freelancer kết nối PayPal
-router.post("/save-token", verifyToken, async (req, res) => {
-    const { uid } = req.user;
-    const { paypal_token } = req.body;
-
-    if (!paypal_token) return res.status(400).json({ error: "Missing token" });
-
-    try {
-        await pool.query(
-            "UPDATE freelancers SET paypal_token = $1, paypal_connected = true WHERE firebase_uid = $2",
-            [paypal_token, uid]
-        );
-        res.json({ message: "PayPal token saved successfully" });
-    } catch (err) {
-        console.error("❌ Error saving PayPal token:", err.message);
-        res.status(500).json({ error: "Failed to save token" });
-    }
-});
-// routes/paypal.js
-router.post("/create-vault-session", verifyToken, async (req, res) => {
-    const returnUrl = `${process.env.FRONTEND_URL}/freelancers?paypal=success`;
-    const cancelUrl = `${process.env.FRONTEND_URL}/freelancers?paypal=cancel`;
-
-    try {
-        const vaultUrl = `https://www.paypal.com/checkoutnow?tokenizePayment=true&return_url=${encodeURIComponent(returnUrl)}&cancel_url=${encodeURIComponent(cancelUrl)}`;
-
-        res.json({ url: vaultUrl });
-    } catch (err) {
-        console.error("❌ Error generating PayPal vault link:", err.message);
-        res.status(500).json({ error: "Failed to create vault session" });
-    }
-});
-
 
 export default router;
