@@ -82,5 +82,32 @@ router.post("/save-subscription", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Failed to save subscription" });
   }
 });
+router.post("/webhook", express.json({ type: "application/json" }), async (req, res) => {
+  const event = req.body;
+
+  try {
+    if (event.event_type === "BILLING.SUBSCRIPTION.ACTIVATED") {
+      const subscriptionId = event.resource.id;
+      const email = event.resource.subscriber?.email_address;
+
+      if (!email) return res.status(400).json({ error: "Missing subscriber email" });
+
+      // Cập nhật freelancer theo email
+      await pool.query(
+        `UPDATE freelancers 
+         SET paypal_subscription_id = $1, paypal_connected = true 
+         WHERE email = $2`,
+        [subscriptionId, email]
+      );
+
+      console.log(`✅ Webhook processed: ${subscriptionId} for ${email}`);
+    }
+
+    res.sendStatus(200);
+  } catch (err) {
+    console.error("❌ Webhook error:", err.message);
+    res.sendStatus(500);
+  }
+});
 
 export default router;
