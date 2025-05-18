@@ -1,42 +1,42 @@
-// routes/paypal.js
 import express from "express";
-import client from "../utils/paypal.js";
 import verifyToken from "../middleware/verifyToken.js";
+import paypal from '@paypal/checkout-server-sdk';
+import client from "../utils/paypal.js";
 
 const router = express.Router();
 
-router.post("/create-billing", verifyToken, async (req, res) => {
+router.post("/create-subscription", verifyToken, async (req, res) => {
   try {
-    const request = new paypal.subscriptions.PlansCreateRequest();
+    const request = new paypal.orders.OrdersCreateRequest();
+    request.prefer("return=representation");
     request.requestBody({
-      product_id: process.env.PAYPAL_PRODUCT_ID, // bạn cần tạo Product trước
-      name: "Freelancer Service Fee",
-      billing_cycles: [{
-        frequency: { interval_unit: "MONTH", interval_count: 1 },
-        tenure_type: "REGULAR",
-        sequence: 1,
-        total_cycles: 0,
-        pricing_scheme: {
-          fixed_price: { value: "10.00", currency_code: "USD" }
-        }
+      intent: "CAPTURE",
+      purchase_units: [{
+        amount: {
+          currency_code: "USD",
+          value: "10.00" // 💵 phí bạn muốn thu mỗi lần nhận khách
+        },
+        description: "Freelancer service charge"
       }],
-      payment_preferences: {
-        auto_bill_outstanding: true,
-        setup_fee: { value: "0", currency_code: "USD" },
-        setup_fee_failure_action: "CONTINUE",
-        payment_failure_threshold: 1
+      application_context: {
+        brand_name: "CryptoManager",
+        user_action: "PAY_NOW",
+        return_url: `${process.env.FRONTEND_URL}/freelancers?paypal=success`,
+        cancel_url: `${process.env.FRONTEND_URL}/freelancers?paypal=cancel`
       }
     });
 
-    const plan = await client.execute(request);
+    const order = await client.execute(request);
+    const approvalUrl = order.result.links.find(link => link.rel === "approve")?.href;
 
-    // redirect URL sẽ được xử lý sau khi bạn tạo subscription
-    const agreementURL = `https://www.paypal.com/billing/plans/${plan.result.id}`;
+    if (!approvalUrl) {
+      return res.status(400).json({ error: "Failed to get approval URL" });
+    }
 
-    res.json({ url: agreementURL });
+    res.json({ url: approvalUrl });
   } catch (err) {
-    console.error("❌ PayPal billing error:", err.message);
-    res.status(500).json({ error: "Failed to create billing agreement" });
+    console.error("❌ Error creating PayPal order:", err.message);
+    res.status(500).json({ error: "PayPal order creation failed" });
   }
 });
 
