@@ -3,42 +3,63 @@ import verifyToken from "../middleware/verifyToken.js";
 import paypal from '@paypal/checkout-server-sdk';
 import client from "../utils/paypal.js";
 import pkg from "pg";
+import axios from "axios";
 
 const { Pool } = pkg;
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
 });
 
 const router = express.Router();
 
 router.post("/create-subscription", verifyToken, async (req, res) => {
-  const { uid } = req.user;
-  const returnUrl = `${process.env.FRONTEND_URL}/freelancers?paypal=success`;
-  const cancelUrl = `${process.env.FRONTEND_URL}/freelancers?paypal=cancel`;
+    const { uid } = req.user;
 
-  try {
-    const request = new paypal.subscriptions.SubscriptionCreateRequest();
-    request.requestBody({
-      plan_id: process.env.PAYPAL_PLAN_ID, // ✅ plan ID bạn đã tạo
-      application_context: {
-        brand_name: "CryptoManager",
-        locale: "en-US",
-        shipping_preference: "NO_SHIPPING",
-        user_action: "SUBSCRIBE_NOW",
-        return_url: returnUrl,
-        cancel_url: cancelUrl,
-      }
-    });
+    try {
+        // Lấy access token từ PayPal
+        const authRes = await axios({
+            method: "post",
+            url: "https://api-m.paypal.com/v1/oauth2/token",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            auth: {
+                username: process.env.PAYPAL_CLIENT_ID,
+                password: process.env.PAYPAL_CLIENT_SECRET,
+            },
+            data: "grant_type=client_credentials",
+        });
 
-    const subscription = await client.execute(request);
-    const approvalUrl = subscription.result.links.find(link => link.rel === "approve")?.href;
+        const accessToken = authRes.data.access_token;
 
-    res.json({ url: approvalUrl });
-  } catch (err) {
-    console.error("❌ Error creating subscription:", err.message);
-    res.status(500).json({ error: "Subscription creation failed" });
-  }
+        // Gọi API tạo subscription
+        const result = await axios({
+            method: "post",
+            url: "https://api-m.paypal.com/v1/billing/subscriptions",
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/json",
+            },
+            data: {
+                plan_id: process.env.PAYPAL_PLAN_ID,
+                application_context: {
+                    brand_name: "CryptoManager",
+                    return_url: `${process.env.FRONTEND_URL}/freelancers?paypal=success`,
+                    cancel_url: `${process.env.FRONTEND_URL}/freelancers?paypal=cancel`,
+                    user_action: "SUBSCRIBE_NOW",
+                },
+            },
+        });
+
+        const approvalUrl = result.data.links.find(link => link.rel === "approve")?.href;
+
+        if (!approvalUrl) return res.status(400).json({ error: "Failed to get approval link" });
+
+        res.json({ url: approvalUrl });
+    } catch (err) {
+        console.error("❌ Error creating subscription:", err.message);
+        res.status(500).json({ error: "Subscription creation failed" });
+    }
 });
-
 export default router;
