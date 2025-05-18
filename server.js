@@ -60,7 +60,6 @@ app.use("/api/freelancers", freelancerRoutes);
 import paypalRoute from './routes/paypal.js';
 app.use("/api/paypal", paypalRoute);
 
-
 //=====================================================================================================
 
 
