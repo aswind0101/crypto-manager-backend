@@ -35,5 +35,20 @@ router.post("/save-token", verifyToken, async (req, res) => {
         res.status(500).json({ error: "Failed to save token" });
     }
 });
+// routes/paypal.js
+router.post("/create-vault-session", verifyToken, async (req, res) => {
+    const returnUrl = `${process.env.FRONTEND_URL}/freelancers?paypal=success`;
+    const cancelUrl = `${process.env.FRONTEND_URL}/freelancers?paypal=cancel`;
+
+    try {
+        const vaultUrl = `https://www.paypal.com/checkoutnow?tokenizePayment=true&return_url=${encodeURIComponent(returnUrl)}&cancel_url=${encodeURIComponent(cancelUrl)}`;
+
+        res.json({ url: vaultUrl });
+    } catch (err) {
+        console.error("❌ Error generating PayPal vault link:", err.message);
+        res.status(500).json({ error: "Failed to create vault session" });
+    }
+});
+
 
 export default router;
