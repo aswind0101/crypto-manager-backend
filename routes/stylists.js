@@ -14,23 +14,25 @@ router.get("/stylists/online", async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT 
-        f.id,
-        f.name,
-        f.avatar_url,
-        f.gender,
-        f.specialization,
-        f.rating,
-        s.latitude,
-        s.longitude
-      FROM freelancers f
-      JOIN salons s ON f.salon_id = s.id
-      WHERE 
-        f.is_verified = true AND
-        f.status = 'active' AND
-        f.avatar_url IS NOT NULL AND
-        s.latitude IS NOT NULL AND
-        s.longitude IS NOT NULL
-      ORDER BY f.name ASC
+  f.id,
+  f.name,
+  f.avatar_url,
+  f.gender,
+  f.specialization,
+  f.rating,
+  s.latitude,
+  s.longitude,
+  s.name AS salon_name,
+  s.address AS salon_address
+FROM freelancers f
+JOIN salons s ON f.salon_id = s.id
+WHERE 
+  f.is_verified = true AND
+  f.status = 'active' AND
+  f.avatar_url IS NOT NULL AND
+  s.latitude IS NOT NULL AND
+  s.longitude IS NOT NULL
+ORDER BY f.name ASC
     `);
 
     res.json(result.rows);
