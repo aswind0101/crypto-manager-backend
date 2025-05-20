@@ -14,32 +14,60 @@ router.get("/stylists/online", async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT 
-  f.id,
-  f.name,
-  f.avatar_url,
-  f.gender,
-  f.specialization,
-  f.rating,
-  s.latitude,
-  s.longitude,
-  s.name AS salon_name,
-  s.address AS salon_address
-FROM freelancers f
-JOIN salons s ON f.salon_id = s.id
-WHERE 
-  f.is_verified = true AND
-  f.status = 'active' AND
-  f.avatar_url IS NOT NULL AND
-  s.latitude IS NOT NULL AND
-  s.longitude IS NOT NULL
-ORDER BY f.name ASC
+        f.id AS stylist_id,
+        f.name AS stylist_name,
+        f.avatar_url,
+        f.gender,
+        f.specialization,
+        f.rating,
+        s.id AS salon_id,
+        s.name AS salon_name,
+        s.address AS salon_address,
+        s.latitude,
+        s.longitude
+      FROM freelancers f
+      JOIN salons s ON f.salon_id = s.id
+      WHERE 
+        f.is_verified = true AND
+        f.status = 'active' AND
+        f.avatar_url IS NOT NULL AND
+        s.latitude IS NOT NULL AND
+        s.longitude IS NOT NULL
+      ORDER BY s.id, f.name
     `);
 
-    res.json(result.rows);
+    // Gom stylist theo salon_id
+    const grouped = {};
+    for (const row of result.rows) {
+      const salonId = row.salon_id;
+      if (!grouped[salonId]) {
+        grouped[salonId] = {
+          salon_id: salonId,
+          salon_name: row.salon_name,
+          salon_address: row.salon_address,
+          latitude: row.latitude,
+          longitude: row.longitude,
+          stylists: [],
+        };
+      }
+
+      grouped[salonId].stylists.push({
+        id: row.stylist_id,
+        name: row.stylist_name,
+        avatar_url: row.avatar_url,
+        gender: row.gender,
+        specialization: row.specialization,
+        rating: row.rating,
+      });
+    }
+
+    const salons = Object.values(grouped);
+    res.json(salons);
   } catch (err) {
-    console.error("❌ Error fetching online stylists:", err.message);
+    console.error("❌ Error fetching stylists:", err.message);
     res.status(500).json({ error: "Failed to fetch stylists" });
   }
 });
+
 
 export default router;
