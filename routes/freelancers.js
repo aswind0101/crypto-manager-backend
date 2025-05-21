@@ -335,16 +335,9 @@ router.get("/onboarding", verifyToken, async (req, res) => {
         const result = await pool.query(
             `SELECT
      avatar_url IS NOT NULL AS has_avatar,
-     (license_url IS NOT NULL AND license_status = 'Approved') AS has_license,
-    (id_doc_url IS NOT NULL AND id_doc_status = 'Approved') AS has_id,
-    (
-    salon_id IS NOT NULL
-    OR (
-      temp_salon_name IS NOT NULL AND temp_salon_name <> ''
-      AND temp_salon_address IS NOT NULL AND temp_salon_address <> ''
-      AND temp_salon_phone IS NOT NULL AND temp_salon_phone <> ''
-    )
-    ) AS has_salon,
+     license_url IS NOT NULL AS has_license,
+     id_doc_url IS NOT NULL AS has_id,
+     salon_id IS NOT NULL AS has_salon,
      payment_connected AS has_payment, -- ✅ Đã thay đổi ở đây
      license_status,
      id_doc_status,
@@ -526,19 +519,19 @@ router.get("/check", verifyToken, async (req, res) => {
 
 // PATCH: Đánh dấu freelancer đã thêm phương thức thanh toán (giả lập)
 router.patch("/mark-payment-added", verifyToken, async (req, res) => {
-    const { uid } = req.user;
-    try {
-        await pool.query(`
+  const { uid } = req.user;
+  try {
+    await pool.query(`
       UPDATE freelancers
       SET payment_connected = true
       WHERE firebase_uid = $1
     `, [uid]);
 
-        res.json({ message: "✅ Payment method marked as added." });
-    } catch (err) {
-        console.error("❌ Error updating payment status:", err.message);
-        res.status(500).json({ error: "Failed to update payment status" });
-    }
+    res.json({ message: "✅ Payment method marked as added." });
+  } catch (err) {
+    console.error("❌ Error updating payment status:", err.message);
+    res.status(500).json({ error: "Failed to update payment status" });
+  }
 });
 
 export default router;
