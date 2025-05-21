@@ -431,13 +431,21 @@ router.patch("/verify-doc", verifyToken, async (req, res) => {
             [status, email]
         );
 
+        // 🔁 Lấy firebase_uid của freelancer để gọi updateIsQualifiedStatus
+        const result = await pool.query("SELECT firebase_uid FROM freelancers WHERE email = $1", [email]);
+        const freelancerUid = result.rows[0]?.firebase_uid;
+
+        if (freelancerUid) {
+            await updateIsQualifiedStatus(freelancerUid);
+        }
+
         res.json({ message: `✅ ${field} status updated to ${status}` });
     } catch (err) {
         console.error("❌ Error updating doc status:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
     }
-    await updateIsQualifiedStatus(uid);
 });
+
 // PATCH: Freelancer chọn salon
 router.patch("/select-salon", verifyToken, async (req, res) => {
     const { uid } = req.user;
