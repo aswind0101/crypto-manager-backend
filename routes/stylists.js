@@ -14,27 +14,27 @@ router.get("/stylists/online", async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT 
-        f.id AS stylist_id,
-        f.name AS stylist_name,
-        f.avatar_url,
-        f.gender,
-        f.specialization,
-        f.rating,
-        f.about, 
-        s.id AS salon_id,
-        s.name AS salon_name,
-        s.address AS salon_address,
-        s.latitude,
-        s.longitude
-      FROM freelancers f
-      JOIN salons s ON f.salon_id = s.id
-      WHERE 
-        f.is_verified = true AND
-        f.status = 'active' AND
-        f.avatar_url IS NOT NULL AND
-        s.latitude IS NOT NULL AND
-        s.longitude IS NOT NULL
-      ORDER BY s.id, f.name
+  f.id AS stylist_id,
+  f.name AS stylist_name,
+  f.avatar_url,
+  f.gender,
+  f.specialization,
+  f.rating,
+  f.about AS description, -- ✅ sửa đúng tại đây
+  s.id AS salon_id,
+  s.name AS salon_name,
+  s.address AS salon_address,
+  s.latitude,
+  s.longitude
+FROM freelancers f
+JOIN salons s ON f.salon_id = s.id
+WHERE 
+  f.is_verified = true AND
+  f.status = 'active' AND
+  f.avatar_url IS NOT NULL AND
+  s.latitude IS NOT NULL AND
+  s.longitude IS NOT NULL
+ORDER BY s.id, f.name
     `);
 
     // Gom stylist theo salon_id
@@ -59,7 +59,7 @@ router.get("/stylists/online", async (req, res) => {
         gender: row.gender,
         specialization: row.specialization,
         rating: row.rating,
-        description: row.about,
+        description: row.description,
       });
     }
 
