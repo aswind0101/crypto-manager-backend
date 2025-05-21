@@ -436,6 +436,7 @@ router.patch("/verify-doc", verifyToken, async (req, res) => {
         console.error("❌ Error updating doc status:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
     }
+    await updateIsQualifiedStatus(uid);
 });
 // PATCH: Freelancer chọn salon
 router.patch("/select-salon", verifyToken, async (req, res) => {
