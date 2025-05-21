@@ -20,6 +20,7 @@ router.get("/stylists/online", async (req, res) => {
         f.gender,
         f.specialization,
         f.rating,
+        f.description, 
         s.id AS salon_id,
         s.name AS salon_name,
         s.address AS salon_address,
@@ -58,6 +59,7 @@ router.get("/stylists/online", async (req, res) => {
         gender: row.gender,
         specialization: row.specialization,
         rating: row.rating,
+        description: row.description,
       });
     }
 
