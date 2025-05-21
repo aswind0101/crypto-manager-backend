@@ -38,6 +38,29 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+const updateIsQualifiedStatus = async (firebase_uid) => {
+    const result = await pool.query(`
+    SELECT avatar_url, license_url, license_status,
+           id_doc_url, id_doc_status, payment_connected,
+           salon_id, temp_salon_name, temp_salon_address, temp_salon_phone
+    FROM freelancers
+    WHERE firebase_uid = $1
+  `, [firebase_uid]);
+
+    const f = result.rows[0];
+    const qualified =
+        f.avatar_url &&
+        f.license_url && f.license_status === 'Approved' &&
+        f.id_doc_url && f.id_doc_status === 'Approved' &&
+        f.payment_connected &&
+        (
+            f.salon_id !== null ||
+            (f.temp_salon_name && f.temp_salon_address && f.temp_salon_phone)
+        );
+
+    await pool.query("UPDATE freelancers SET isQualified = $1 WHERE firebase_uid = $2", [qualified, firebase_uid]);
+};
+
 // ✅ POST /api/freelancers/upload/avatar
 router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, res) => {
     const { email, uid } = req.user;
@@ -79,6 +102,7 @@ router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, 
         console.error("❌ Upload avatar error:", err.message);
         res.status(500).json({ error: "Failed to update freelancer avatar" });
     }
+    await updateIsQualifiedStatus(uid);
 });
 router.post("/upload/id", verifyToken, upload.single("id_doc"), async (req, res) => {
     const { email, uid } = req.user;
@@ -110,6 +134,7 @@ router.post("/upload/id", verifyToken, upload.single("id_doc"), async (req, res)
         console.error("❌ Upload ID error:", err.message);
         res.status(500).json({ error: "Failed to update freelancer ID" });
     }
+    await updateIsQualifiedStatus(uid);
 });
 
 // ✅ POST /api/freelancers/upload/license
@@ -143,6 +168,7 @@ router.post("/upload/license", verifyToken, upload.single("license"), async (req
         console.error("❌ Upload license error:", err.message);
         res.status(500).json({ error: "Failed to update freelancer license" });
     }
+    await updateIsQualifiedStatus(uid);
 });
 // GET: /api/freelancers/verify?token=abc123
 router.get("/verify", async (req, res) => {
@@ -327,6 +353,7 @@ router.post("/register", async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 // 📌 GET /api/freelancers/onboarding
 router.get("/onboarding", verifyToken, async (req, res) => {
     const { uid } = req.user;
@@ -339,6 +366,7 @@ router.get("/onboarding", verifyToken, async (req, res) => {
      id_doc_url IS NOT NULL AS has_id,
      salon_id IS NOT NULL AS has_salon,
      payment_connected AS has_payment, -- ✅ Đã thay đổi ở đây
+     isQualified,
      license_status,
      id_doc_status,
      avatar_url,
@@ -505,6 +533,7 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
         console.error("❌ Error selecting salon:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
     }
+    await updateIsQualifiedStatus(uid);
 });
 router.get("/check", verifyToken, async (req, res) => {
     const { uid } = req.user;
@@ -519,19 +548,20 @@ router.get("/check", verifyToken, async (req, res) => {
 
 // PATCH: Đánh dấu freelancer đã thêm phương thức thanh toán (giả lập)
 router.patch("/mark-payment-added", verifyToken, async (req, res) => {
-  const { uid } = req.user;
-  try {
-    await pool.query(`
+    const { uid } = req.user;
+    try {
+        await pool.query(`
       UPDATE freelancers
       SET payment_connected = true
       WHERE firebase_uid = $1
     `, [uid]);
 
-    res.json({ message: "✅ Payment method marked as added." });
-  } catch (err) {
-    console.error("❌ Error updating payment status:", err.message);
-    res.status(500).json({ error: "Failed to update payment status" });
-  }
+        res.json({ message: "✅ Payment method marked as added." });
+    } catch (err) {
+        console.error("❌ Error updating payment status:", err.message);
+        res.status(500).json({ error: "Failed to update payment status" });
+    }
+    await updateIsQualifiedStatus(uid);
 });
 
 export default router;
