@@ -196,18 +196,6 @@ router.post(
             }
 
             const { uid } = req.user;
-
-            // 1️⃣ Lấy avatar cũ và xóa file nếu có
-            const old = await pool.query(
-                "SELECT avatar_url FROM employees WHERE firebase_uid = $1",
-                [uid]
-            );
-            const oldUrl = old.rows[0]?.avatar_url;
-            if (oldUrl) {
-                const abs = path.join(__dirname, "..", oldUrl);
-                if (fs.existsSync(abs)) fs.unlinkSync(abs);
-            }
-
             // 2️⃣ Lưu avatar mới và cập nhật DB
             const filePath = req.file.path; // Cloudinary secure_url
 
@@ -240,16 +228,6 @@ router.post(
     async (req, res) => {
         const { uid } = req.user;
         try {
-            // 1️⃣ Lấy và xoá file cũ
-            const old = await pool.query(
-                "SELECT certifications FROM employees WHERE firebase_uid = $1",
-                [uid]
-            );
-            const oldFiles = old.rows[0]?.certifications || [];
-            oldFiles.forEach(rel => {
-                const p = path.join(__dirname, "..", rel);
-                if (fs.existsSync(p)) fs.unlinkSync(p);
-            });
 
             // 2️⃣ Lưu file mới và cập nhật DB
             const filePaths = req.files.map(f => f.path); // Cloudinary trả về link
@@ -284,17 +262,6 @@ router.post(
     async (req, res) => {
         const { uid } = req.user;
         try {
-            // 1️⃣ Lấy và xoá file cũ
-            const old = await pool.query(
-                "SELECT id_documents FROM employees WHERE firebase_uid = $1",
-                [uid]
-            );
-            const oldFiles = old.rows[0]?.id_documents || [];
-            oldFiles.forEach(rel => {
-                const p = path.join(__dirname, "..", rel);
-                if (fs.existsSync(p)) fs.unlinkSync(p);
-            });
-
             // 2️⃣ Lưu file mới và cập nhật DB
            const filePaths = req.files.map(f => f.path); // Cloudinary trả về link
 
