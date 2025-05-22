@@ -38,6 +38,29 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+const updateIsQualifiedStatus = async (firebase_uid) => {
+    const result = await pool.query(`
+    SELECT avatar_url, license_url, license_status,
+           id_doc_url, id_doc_status, payment_connected,
+           salon_id, temp_salon_name, temp_salon_address, temp_salon_phone
+    FROM freelancers
+    WHERE firebase_uid = $1
+  `, [firebase_uid]);
+
+    const f = result.rows[0];
+    const qualified =
+        f.avatar_url &&
+        f.license_url && f.license_status === 'Approved' &&
+        f.id_doc_url && f.id_doc_status === 'Approved' &&
+        f.payment_connected &&
+        (
+            f.salon_id !== null ||
+            (f.temp_salon_name && f.temp_salon_address && f.temp_salon_phone)
+        );
+
+    await pool.query("UPDATE freelancers SET isQualified = $1 WHERE firebase_uid = $2", [qualified, firebase_uid]);
+};
+
 // ✅ POST /api/freelancers/upload/avatar
 router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, res) => {
     const { email, uid } = req.user;
@@ -79,6 +102,7 @@ router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, 
         console.error("❌ Upload avatar error:", err.message);
         res.status(500).json({ error: "Failed to update freelancer avatar" });
     }
+    await updateIsQualifiedStatus(uid);
 });
 router.post("/upload/id", verifyToken, upload.single("id_doc"), async (req, res) => {
     const { email, uid } = req.user;
@@ -110,6 +134,7 @@ router.post("/upload/id", verifyToken, upload.single("id_doc"), async (req, res)
         console.error("❌ Upload ID error:", err.message);
         res.status(500).json({ error: "Failed to update freelancer ID" });
     }
+    await updateIsQualifiedStatus(uid);
 });
 
 // ✅ POST /api/freelancers/upload/license
@@ -143,9 +168,10 @@ router.post("/upload/license", verifyToken, upload.single("license"), async (req
         console.error("❌ Upload license error:", err.message);
         res.status(500).json({ error: "Failed to update freelancer license" });
     }
+    await updateIsQualifiedStatus(uid);
 });
 // GET: /api/freelancers/verify?token=abc123
-router.get("/verify", verifyToken, async (req, res) => {
+router.get("/verify", async (req, res) => {
     const { token } = req.query;
 
     if (!token) {
@@ -153,9 +179,10 @@ router.get("/verify", verifyToken, async (req, res) => {
     }
 
     try {
+        // 1️⃣ Tìm freelancer theo token
         const result = await pool.query(`
-      SELECT id, is_verified FROM freelancers WHERE verify_token = $1
-    `, [token]);
+            SELECT id, is_verified, email FROM freelancers WHERE verify_token = $1
+        `, [token]);
 
         if (result.rows.length === 0) {
             return res.status(400).json({ error: "Invalid or expired token" });
@@ -167,13 +194,33 @@ router.get("/verify", verifyToken, async (req, res) => {
             return res.status(200).json({ message: "Account already verified." });
         }
 
+        // 2️⃣ Cập nhật trạng thái freelancer
         await pool.query(`
-  UPDATE freelancers
-  SET is_verified = true,
-      verify_token = NULL,
-      firebase_uid = $1
-  WHERE id = $2
-`, [req.user.uid, freelancer.id]);
+            UPDATE freelancers
+            SET is_verified = true,
+                verify_token = NULL
+            WHERE id = $1
+        `, [freelancer.id]);
+
+        // 3️⃣ Kiểm tra user đã có trong bảng users chưa
+        const userCheck = await pool.query(`SELECT id, role FROM users WHERE email = $1`, [freelancer.email]);
+
+        if (userCheck.rows.length > 0) {
+            // 4️⃣ Kiểm tra nếu user có trong bảng employees
+            const empCheck = await pool.query(`SELECT id FROM employees WHERE email = $1`, [freelancer.email]);
+
+            if (empCheck.rows.length > 0) {
+                await pool.query(`
+                    UPDATE users SET role = 'Salon_All' WHERE id = $1
+                `, [userCheck.rows[0].id]);
+            }
+        } else {
+            // 5️⃣ Nếu chưa có user ➜ thêm mới với role là Salon_Freelancers
+            await pool.query(`
+                INSERT INTO users (email, role)
+                VALUES ($1, 'Salon_Freelancers')
+            `, [freelancer.email]);
+        }
 
         return res.status(200).json({ message: "✅ Your account has been verified successfully!" });
 
@@ -182,6 +229,7 @@ router.get("/verify", verifyToken, async (req, res) => {
         return res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 // ✅ Gửi lại email xác minh
 router.get("/resend-verify", async (req, res) => {
     const { email } = req.query;
@@ -305,6 +353,7 @@ router.post("/register", async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 // 📌 GET /api/freelancers/onboarding
 router.get("/onboarding", verifyToken, async (req, res) => {
     const { uid } = req.user;
@@ -316,7 +365,8 @@ router.get("/onboarding", verifyToken, async (req, res) => {
      license_url IS NOT NULL AS has_license,
      id_doc_url IS NOT NULL AS has_id,
      salon_id IS NOT NULL AS has_salon,
-     payment_info IS NOT NULL AS has_payment,
+     payment_connected AS has_payment, -- ✅ Đã thay đổi ở đây
+     isQualified,
      license_status,
      id_doc_status,
      avatar_url,
@@ -381,12 +431,21 @@ router.patch("/verify-doc", verifyToken, async (req, res) => {
             [status, email]
         );
 
+        // 🔁 Lấy firebase_uid của freelancer để gọi updateIsQualifiedStatus
+        const result = await pool.query("SELECT firebase_uid FROM freelancers WHERE email = $1", [email]);
+        const freelancerUid = result.rows[0]?.firebase_uid;
+
+        if (freelancerUid) {
+            await updateIsQualifiedStatus(freelancerUid);
+        }
+
         res.json({ message: `✅ ${field} status updated to ${status}` });
     } catch (err) {
         console.error("❌ Error updating doc status:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 // PATCH: Freelancer chọn salon
 router.patch("/select-salon", verifyToken, async (req, res) => {
     const { uid } = req.user;
@@ -436,7 +495,10 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
         if (checkEmp.rows.length > 0) {
             // Nếu đã từng bị từ chối ➝ chuyển lại thành inactive
             await pool.query(
-                `UPDATE employees SET status = 'inactive' WHERE id = $1`,
+                `UPDATE employees
+     SET status = 'inactive',
+         freelancers_system = true
+     WHERE id = $1`,
                 [checkEmp.rows[0].id]
             );
         } else {
@@ -446,13 +508,15 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
       salon_id, firebase_uid, name, phone, email,
       role, status, is_freelancer,
       avatar_url, certifications, id_documents,
-      certification_status, id_document_status
+      certification_status, id_document_status,
+      freelancers_system
     )
     VALUES (
       $1, $2, $3, $4, $5,
       $6, 'inactive', true,
       $7, ARRAY[$8], ARRAY[$9],
-      'In Review', 'In Review'
+      'In Review', 'In Review',
+      true
     )`,
                 [
                     salon_id,
@@ -466,6 +530,11 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
                     freelancer.id_doc_url,
                 ]
             );
+            // 5️⃣ Cập nhật role = 'Salon_All' trong bảng users nếu user đã tồn tại
+            const userCheck = await pool.query(`SELECT id FROM users WHERE firebase_uid = $1`, [uid]);
+            if (userCheck.rows.length > 0) {
+                await pool.query(`UPDATE users SET role = 'Salon_All' WHERE id = $1`, [userCheck.rows[0].id]);
+            }
         }
 
         res.json({ message: "Salon selected and synced to employees" });
@@ -473,17 +542,35 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
         console.error("❌ Error selecting salon:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
     }
+    await updateIsQualifiedStatus(uid);
 });
 router.get("/check", verifyToken, async (req, res) => {
-  const { uid } = req.user;
-  try {
-    const check = await pool.query("SELECT id FROM freelancers WHERE firebase_uid = $1", [uid]);
-    return res.json({ exists: check.rows.length > 0 });
-  } catch (err) {
-    console.error("❌ Error checking freelancer by uid:", err.message);
-    return res.status(500).json({ error: "Internal Server Error" });
-  }
+    const { uid } = req.user;
+    try {
+        const check = await pool.query("SELECT id FROM freelancers WHERE firebase_uid = $1", [uid]);
+        return res.json({ exists: check.rows.length > 0 });
+    } catch (err) {
+        console.error("❌ Error checking freelancer by uid:", err.message);
+        return res.status(500).json({ error: "Internal Server Error" });
+    }
 });
 
+// PATCH: Đánh dấu freelancer đã thêm phương thức thanh toán (giả lập)
+router.patch("/mark-payment-added", verifyToken, async (req, res) => {
+    const { uid } = req.user;
+    try {
+        await pool.query(`
+      UPDATE freelancers
+      SET payment_connected = true
+      WHERE firebase_uid = $1
+    `, [uid]);
+
+        res.json({ message: "✅ Payment method marked as added." });
+    } catch (err) {
+        console.error("❌ Error updating payment status:", err.message);
+        res.status(500).json({ error: "Failed to update payment status" });
+    }
+    await updateIsQualifiedStatus(uid);
+});
 
 export default router;

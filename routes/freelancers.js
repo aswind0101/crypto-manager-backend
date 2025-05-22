@@ -8,6 +8,9 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
+import cloudinary from 'cloudinary';
+import { CloudinaryStorage } from 'multer-storage-cloudinary';
+
 
 const { Pool } = pkg;
 const router = express.Router();
@@ -17,26 +20,36 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false },
 });
 
+
+cloudinary.v2.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary.v2,
+  params: async (req, file) => {
+    let folder = 'freelancers/others';
+    if (req.originalUrl.includes('avatar')) folder = 'freelancers/avatars';
+    if (req.originalUrl.includes('license')) folder = 'freelancers/licenses';
+    if (req.originalUrl.includes('id')) folder = 'freelancers/id_documents';
+
+    return {
+      folder,
+      allowed_formats: ['jpg', 'png', 'jpeg', 'pdf'],
+      public_id: `${req.user.uid}_${Date.now()}`,
+    };
+  },
+});
+
+const upload = multer({ storage });
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // 🌐 Multer: phân thư mục theo URL
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        let dir = "uploads/avatars";
-        if (req.originalUrl.includes("license")) dir = "uploads/licenses";
-        if (req.originalUrl.includes("id")) dir = "uploads/id_documents";
-        const fullPath = path.join(__dirname, "..", dir);
-        if (!fs.existsSync(fullPath)) fs.mkdirSync(fullPath, { recursive: true });
-        cb(null, fullPath);
-    },
-    filename: (req, file, cb) => {
-        const ext = path.extname(file.originalname);
-        cb(null, `${req.user.uid}_${Date.now()}${ext}`);
-    },
-});
 
-const upload = multer({ storage });
 
 const updateIsQualifiedStatus = async (firebase_uid) => {
     const result = await pool.query(`
@@ -74,7 +87,8 @@ router.post("/upload/avatar", verifyToken, upload.single("avatar"), async (req, 
         return res.status(400).json({ error: "Missing email or file" });
     }
 
-    const avatarUrl = `/uploads/avatars/${file.filename}`;
+    const avatarUrl = req.file.path; // Cloudinary trả về URL
+
     console.log("🖼️ Avatar URL to save:", avatarUrl);
 
     try {
@@ -112,7 +126,7 @@ router.post("/upload/id", verifyToken, upload.single("id_doc"), async (req, res)
         return res.status(400).json({ error: "Missing file or email" });
     }
 
-    const idUrl = `/uploads/id_documents/${file.filename}`;
+    const idUrl = req.file.path;
 
     try {
         // 🧹 Xoá file cũ nếu có
@@ -146,7 +160,7 @@ router.post("/upload/license", verifyToken, upload.single("license"), async (req
         return res.status(400).json({ error: "Missing file or email" });
     }
 
-    const licenseUrl = `/uploads/licenses/${file.filename}`;
+    const licenseUrl = req.file.path;
 
     try {
         // 🗑 Lấy license cũ và xoá nếu có
