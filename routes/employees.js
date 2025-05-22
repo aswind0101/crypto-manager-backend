@@ -5,6 +5,9 @@ import multer from "multer";
 import path from "path";
 import fs from 'fs';
 import { fileURLToPath } from "url";
+import cloudinary from 'cloudinary';
+import { CloudinaryStorage } from 'multer-storage-cloudinary';
+
 import pkg from "pg";
 const { Pool } = pkg;
 
@@ -18,21 +21,31 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const SUPER_ADMINS = ["D9nW6SLT2pbUuWbNVnCgf2uINok2"];
+
+cloudinary.v2.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
 // Multer storage: cho vào đúng folder theo URL
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        let dir = "uploads/avatars";
-        if (req.originalUrl.includes("certifications")) dir = "uploads/certifications";
-        if (req.originalUrl.includes("id_documents")) dir = "uploads/id_documents";
-        if (!fs.existsSync(path.join(__dirname, "..", dir))) fs.mkdirSync(path.join(__dirname, "..", dir), { recursive: true });
-        cb(null, path.join(__dirname, "..", dir));
-    },
-    filename: (req, file, cb) => {
-        const ext = path.extname(file.originalname);
-        cb(null, `${req.user.uid}_${Date.now()}${ext}`);
-    },
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: async (req, file) => {
+    let folder = "crypto_manager/employees/others";
+    if (req.originalUrl.includes("avatar")) folder = "crypto_manager/employees/avatars";
+    if (req.originalUrl.includes("certifications")) folder = "crypto_manager/employees/certifications";
+    if (req.originalUrl.includes("id_documents")) folder = "crypto_manager/employees/id_documents";
+
+    return {
+      folder,
+      allowed_formats: ['jpg', 'png', 'pdf'],
+      public_id: `${req.user.uid}_${Date.now()}`
+    };
+  }
 });
 const upload = multer({ storage });
+
 
 router.get("/", verifyToken, attachUserRole, async (req, res) => {
     const { uid, email, role: userRole } = req.user;
@@ -196,7 +209,8 @@ router.post(
             }
 
             // 2️⃣ Lưu avatar mới và cập nhật DB
-            const filePath = `/uploads/avatars/${req.file.filename}`;
+            const filePath = req.file.path; // Cloudinary secure_url
+
             const result = await pool.query(
                 `UPDATE employees
               SET avatar_url = $1
@@ -238,7 +252,8 @@ router.post(
             });
 
             // 2️⃣ Lưu file mới và cập nhật DB
-            const filePaths = req.files.map(f => `/uploads/certifications/${f.filename}`);
+            const filePaths = req.files.map(f => f.path); // Cloudinary trả về link
+
             const result = await pool.query(
                 `UPDATE employees
               SET certifications = $1,
@@ -281,7 +296,8 @@ router.post(
             });
 
             // 2️⃣ Lưu file mới và cập nhật DB
-            const filePaths = req.files.map(f => `/uploads/id_documents/${f.filename}`);
+           const filePaths = req.files.map(f => f.path); // Cloudinary trả về link
+
             const result = await pool.query(
                 `UPDATE employees
               SET id_documents = $1,
