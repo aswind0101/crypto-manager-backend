@@ -179,31 +179,42 @@ router.post("/register-customer", verifyToken, async (req, res) => {
     const { uid, email, name, phone_number } = req.user;
 
     try {
-        // 1️⃣ Check đã tồn tại chưa trong bảng users
+        // 1️⃣ Check user trong bảng users
         const userRes = await pool.query(
-            "SELECT id FROM users WHERE firebase_uid = $1",
+            "SELECT id, role FROM users WHERE firebase_uid = $1",
             [uid]
         );
 
-        if (userRes.rows.length > 0) {
-            return res.status(200).json({ message: "User already exists" });
+        if (userRes.rows.length === 0) {
+            // Chưa có ➝ thêm mới với role Salon_Customer
+            await pool.query(
+                `INSERT INTO users (firebase_uid, email, role)
+         VALUES ($1, $2, 'Salon_Customer')`,
+                [uid, email]
+            );
+        } else if (userRes.rows[0].role !== "Salon_Customer") {
+            // Đã có nhưng role khác ➝ cập nhật lại role
+            await pool.query(
+                `UPDATE users SET role = 'Salon_Customer' WHERE firebase_uid = $1`,
+                [uid]
+            );
         }
 
-        // 2️⃣ Insert vào bảng users
-        await pool.query(
-            `INSERT INTO users (firebase_uid, email, role)
-       VALUES ($1, $2, 'Salon_Customer')`,
-            [uid, email]
+        // 2️⃣ Check & thêm vào bảng customers
+        const customerCheck = await pool.query(
+            "SELECT id FROM customers WHERE firebase_uid = $1",
+            [uid]
         );
 
-        // 3️⃣ Insert vào bảng customers
-        await pool.query(
-            `INSERT INTO customers (firebase_uid, email, name, phone, status)
-       VALUES ($1, $2, $3, $4, 'active')`,
-            [uid, email, name || "", phone_number || ""]
-        );
+        if (customerCheck.rows.length === 0) {
+            await pool.query(
+                `INSERT INTO customers (firebase_uid, email, name, phone, status)
+         VALUES ($1, $2, $3, $4, 'active')`,
+                [uid, email, name || "", phone_number || ""]
+            );
+        }
 
-        return res.status(201).json({ message: "Salon_Customer registered" });
+        return res.status(201).json({ message: "✅ Customer registered or updated." });
     } catch (err) {
         console.error("❌ Error registering Salon_Customer:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
