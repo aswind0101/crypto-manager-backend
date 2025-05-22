@@ -32,6 +32,7 @@ WHERE
   f.is_verified = true AND
   f.status = 'active' AND
   f.avatar_url IS NOT NULL AND
+  f.isqualified = true AND
   s.latitude IS NOT NULL AND
   s.longitude IS NOT NULL
 ORDER BY s.id, f.name
