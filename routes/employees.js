@@ -5,9 +5,6 @@ import multer from "multer";
 import path from "path";
 import fs from 'fs';
 import { fileURLToPath } from "url";
-import cloudinary from 'cloudinary';
-import { CloudinaryStorage } from 'multer-storage-cloudinary';
-
 import pkg from "pg";
 const { Pool } = pkg;
 
@@ -21,31 +18,21 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const SUPER_ADMINS = ["D9nW6SLT2pbUuWbNVnCgf2uINok2"];
-
-cloudinary.v2.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
 // Multer storage: cho vào đúng folder theo URL
-const storage = new CloudinaryStorage({
-  cloudinary,
-  params: async (req, file) => {
-    let folder = "crypto_manager/employees/others";
-    if (req.originalUrl.includes("avatar")) folder = "crypto_manager/employees/avatars";
-    if (req.originalUrl.includes("certifications")) folder = "crypto_manager/employees/certifications";
-    if (req.originalUrl.includes("id_documents")) folder = "crypto_manager/employees/id_documents";
-
-    return {
-      folder,
-      allowed_formats: ['jpg', 'png', 'pdf'],
-      public_id: `${req.user.uid}_${Date.now()}`
-    };
-  }
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        let dir = "uploads/avatars";
+        if (req.originalUrl.includes("certifications")) dir = "uploads/certifications";
+        if (req.originalUrl.includes("id_documents")) dir = "uploads/id_documents";
+        if (!fs.existsSync(path.join(__dirname, "..", dir))) fs.mkdirSync(path.join(__dirname, "..", dir), { recursive: true });
+        cb(null, path.join(__dirname, "..", dir));
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        cb(null, `${req.user.uid}_${Date.now()}${ext}`);
+    },
 });
 const upload = multer({ storage });
-
 
 router.get("/", verifyToken, attachUserRole, async (req, res) => {
     const { uid, email, role: userRole } = req.user;
@@ -196,9 +183,20 @@ router.post(
             }
 
             const { uid } = req.user;
-            // 2️⃣ Lưu avatar mới và cập nhật DB
-            const filePath = req.file.path; // Cloudinary secure_url
 
+            // 1️⃣ Lấy avatar cũ và xóa file nếu có
+            const old = await pool.query(
+                "SELECT avatar_url FROM employees WHERE firebase_uid = $1",
+                [uid]
+            );
+            const oldUrl = old.rows[0]?.avatar_url;
+            if (oldUrl) {
+                const abs = path.join(__dirname, "..", oldUrl);
+                if (fs.existsSync(abs)) fs.unlinkSync(abs);
+            }
+
+            // 2️⃣ Lưu avatar mới và cập nhật DB
+            const filePath = `/uploads/avatars/${req.file.filename}`;
             const result = await pool.query(
                 `UPDATE employees
               SET avatar_url = $1
@@ -228,10 +226,19 @@ router.post(
     async (req, res) => {
         const { uid } = req.user;
         try {
+            // 1️⃣ Lấy và xoá file cũ
+            const old = await pool.query(
+                "SELECT certifications FROM employees WHERE firebase_uid = $1",
+                [uid]
+            );
+            const oldFiles = old.rows[0]?.certifications || [];
+            oldFiles.forEach(rel => {
+                const p = path.join(__dirname, "..", rel);
+                if (fs.existsSync(p)) fs.unlinkSync(p);
+            });
 
             // 2️⃣ Lưu file mới và cập nhật DB
-            const filePaths = req.files.map(f => f.path); // Cloudinary trả về link
-
+            const filePaths = req.files.map(f => `/uploads/certifications/${f.filename}`);
             const result = await pool.query(
                 `UPDATE employees
               SET certifications = $1,
@@ -262,9 +269,19 @@ router.post(
     async (req, res) => {
         const { uid } = req.user;
         try {
-            // 2️⃣ Lưu file mới và cập nhật DB
-           const filePaths = req.files.map(f => f.path); // Cloudinary trả về link
+            // 1️⃣ Lấy và xoá file cũ
+            const old = await pool.query(
+                "SELECT id_documents FROM employees WHERE firebase_uid = $1",
+                [uid]
+            );
+            const oldFiles = old.rows[0]?.id_documents || [];
+            oldFiles.forEach(rel => {
+                const p = path.join(__dirname, "..", rel);
+                if (fs.existsSync(p)) fs.unlinkSync(p);
+            });
 
+            // 2️⃣ Lưu file mới và cập nhật DB
+            const filePaths = req.files.map(f => `/uploads/id_documents/${f.filename}`);
             const result = await pool.query(
                 `UPDATE employees
               SET id_documents = $1,
