@@ -174,5 +174,40 @@ router.post("/register", async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+// ✅ API: Ghi danh Salon_Customer nếu chưa có
+router.post("/register-customer", verifyToken, async (req, res) => {
+    const { uid, email, name, phone_number } = req.user;
+
+    try {
+        // 1️⃣ Check đã tồn tại chưa trong bảng users
+        const userRes = await pool.query(
+            "SELECT id FROM users WHERE firebase_uid = $1",
+            [uid]
+        );
+
+        if (userRes.rows.length > 0) {
+            return res.status(200).json({ message: "User already exists" });
+        }
+
+        // 2️⃣ Insert vào bảng users
+        await pool.query(
+            `INSERT INTO users (firebase_uid, email, role)
+       VALUES ($1, $2, 'Salon_Customer')`,
+            [uid, email]
+        );
+
+        // 3️⃣ Insert vào bảng customers
+        await pool.query(
+            `INSERT INTO customers (firebase_uid, email, name, phone, status)
+       VALUES ($1, $2, $3, $4, 'active')`,
+            [uid, email, name || "", phone_number || ""]
+        );
+
+        return res.status(201).json({ message: "Salon_Customer registered" });
+    } catch (err) {
+        console.error("❌ Error registering Salon_Customer:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
 
 export default router;
