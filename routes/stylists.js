@@ -61,7 +61,7 @@ router.get("/stylists/online", async (req, res) => {
         `SELECT id, name, price FROM salon_services 
          WHERE salon_id = $1 AND specialization = $2 AND is_active = true 
          ORDER BY name`,
-        [salonId, row.specialization]
+        [salonId, Array.isArray(row.specialization) ? row.specialization[0] : row.specialization]
       );
 
       grouped[salonId].stylists.push({
