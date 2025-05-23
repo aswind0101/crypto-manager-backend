@@ -55,7 +55,6 @@ router.post("/", verifyToken, async (req, res) => {
         promotion
     } = req.body;
 
-    // Kiểm tra thông tin bắt buộc
     if (!specialization || !name || !price || !duration_minutes) {
         return res.status(400).json({ error: "Missing required fields." });
     }
@@ -73,13 +72,27 @@ router.post("/", verifyToken, async (req, res) => {
 
         const salon_id = salonRes.rows[0].id;
 
-        // ➕ Thêm dịch vụ
+        // ✅ Kiểm tra trùng tên dịch vụ (không phân biệt hoa thường)
+        const checkDuplicate = await pool.query(
+            `SELECT id FROM salon_services
+       WHERE salon_id = $1 AND LOWER(name) = LOWER($2)
+       AND specialization = $3 AND is_active = true`,
+            [salon_id, name.trim(), specialization]
+        );
+
+        if (checkDuplicate.rows.length > 0) {
+            return res.status(409).json({
+                error: "A service with this name already exists for this specialization."
+            });
+        }
+
+        // ➕ Thêm dịch vụ mới
         const insert = await pool.query(
             `INSERT INTO salon_services
       (salon_id, specialization, name, description, price, duration_minutes, promotion)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *`,
-            [salon_id, specialization, name, description, price, duration_minutes, promotion]
+            [salon_id, specialization, name.trim(), description, price, duration_minutes, promotion]
         );
 
         res.status(201).json(insert.rows[0]);
@@ -88,6 +101,7 @@ router.post("/", verifyToken, async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 // ✅ PATCH: Cập nhật dịch vụ theo ID
 router.patch("/:id", verifyToken, async (req, res) => {
     const { id } = req.params;
@@ -135,31 +149,31 @@ router.patch("/:id", verifyToken, async (req, res) => {
 });
 // ❌ DELETE: Xoá mềm service
 router.delete("/:id", verifyToken, async (req, res) => {
-  const { uid } = req.user;
-  const { id } = req.params;
+    const { uid } = req.user;
+    const { id } = req.params;
 
-  try {
-    const check = await pool.query(
-      `SELECT ss.id FROM salon_services ss
+    try {
+        const check = await pool.query(
+            `SELECT ss.id FROM salon_services ss
        JOIN salons s ON ss.salon_id = s.id
        WHERE ss.id = $1 AND s.owner_user_id = $2`,
-      [id, uid]
-    );
+            [id, uid]
+        );
 
-    if (check.rows.length === 0) {
-      return res.status(403).json({ error: "You are not allowed to delete this service." });
+        if (check.rows.length === 0) {
+            return res.status(403).json({ error: "You are not allowed to delete this service." });
+        }
+
+        await pool.query(
+            `UPDATE salon_services SET is_active = false WHERE id = $1`,
+            [id]
+        );
+
+        res.json({ message: "Service deleted (soft) successfully." });
+    } catch (err) {
+        console.error("❌ Error deleting service:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
     }
-
-    await pool.query(
-      `UPDATE salon_services SET is_active = false WHERE id = $1`,
-      [id]
-    );
-
-    res.json({ message: "Service deleted (soft) successfully." });
-  } catch (err) {
-    console.error("❌ Error deleting service:", err.message);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
 });
 
 export default router;
