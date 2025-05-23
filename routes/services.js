@@ -11,7 +11,38 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
+// ✅ GET: Lấy danh sách dịch vụ của salon hiện tại (nếu ?me=1)
+router.get("/", verifyToken, async (req, res) => {
+  const { uid } = req.user;
 
+  // Lấy theo salon hiện tại
+  if (req.query.me === "1") {
+    try {
+      const salonRes = await pool.query(
+        `SELECT id FROM salons WHERE owner_user_id = $1`,
+        [uid]
+      );
+
+      if (salonRes.rows.length === 0) {
+        return res.status(404).json({ error: "Salon not found for current user." });
+      }
+
+      const salon_id = salonRes.rows[0].id;
+
+      const result = await pool.query(
+        `SELECT * FROM salon_services WHERE salon_id = $1 AND is_active = true ORDER BY created_at DESC`,
+        [salon_id]
+      );
+
+      res.json(result.rows);
+    } catch (err) {
+      console.error("❌ Error fetching services:", err.message);
+      res.status(500).json({ error: "Internal Server Error" });
+    }
+  } else {
+    res.status(400).json({ error: "Missing or invalid query: me=1" });
+  }
+});
 // ✅ POST: Tạo dịch vụ mới cho salon
 router.post("/", verifyToken, async (req, res) => {
   const { uid } = req.user;
