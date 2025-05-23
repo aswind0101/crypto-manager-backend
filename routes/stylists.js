@@ -62,7 +62,7 @@ router.get("/stylists/online", async (req, res) => {
         : [row.specialization];
 
       const servicesRes = await pool.query(
-        `SELECT id, name, price FROM salon_services 
+        `SELECT id, name, price, duration_minutes FROM salon_services
    WHERE salon_id = $1 AND specialization = ANY($2) AND is_active = true
    ORDER BY name`,
         [salonId, specializations]
