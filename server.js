@@ -61,6 +61,10 @@ app.use("/api/freelancers", freelancerRoutes);
 import stylistsRoute from "./routes/stylists.js";
 app.use("/api", stylistsRoute);
 
+//============================Services======================================
+import servicesRoute from './routes/services.js';
+app.use("/api/services", servicesRoute);
+
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
