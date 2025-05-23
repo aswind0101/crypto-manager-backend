@@ -57,12 +57,17 @@ router.get("/stylists/online", async (req, res) => {
       }
 
       // 🔍 Truy vấn dịch vụ tương ứng với stylist
+      const specializations = Array.isArray(row.specialization)
+        ? row.specialization
+        : [row.specialization];
+
       const servicesRes = await pool.query(
         `SELECT id, name, price FROM salon_services 
-         WHERE salon_id = $1 AND specialization = $2 AND is_active = true 
-         ORDER BY name`,
-        [salonId, Array.isArray(row.specialization) ? row.specialization[0] : row.specialization]
+   WHERE salon_id = $1 AND specialization = ANY($2) AND is_active = true
+   ORDER BY name`,
+        [salonId, specializations]
       );
+
 
       grouped[salonId].stylists.push({
         id: row.stylist_id,
