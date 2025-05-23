@@ -133,5 +133,33 @@ router.patch("/:id", verifyToken, async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+// ❌ DELETE: Xoá mềm service
+router.delete("/:id", verifyToken, async (req, res) => {
+  const { uid } = req.user;
+  const { id } = req.params;
+
+  try {
+    const check = await pool.query(
+      `SELECT ss.id FROM salon_services ss
+       JOIN salons s ON ss.salon_id = s.id
+       WHERE ss.id = $1 AND s.owner_user_id = $2`,
+      [id, uid]
+    );
+
+    if (check.rows.length === 0) {
+      return res.status(403).json({ error: "You are not allowed to delete this service." });
+    }
+
+    await pool.query(
+      `UPDATE salon_services SET is_active = false WHERE id = $1`,
+      [id]
+    );
+
+    res.json({ message: "Service deleted (soft) successfully." });
+  } catch (err) {
+    console.error("❌ Error deleting service:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 export default router;
