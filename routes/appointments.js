@@ -10,6 +10,33 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
+// ✅ GET: Trả về danh sách lịch hẹn của stylist trong 1 ngày
+router.get("/availability", async (req, res) => {
+  const { stylist_id, date } = req.query;
+
+  if (!stylist_id || !date) {
+    return res.status(400).json({ error: "Missing stylist_id or date." });
+  }
+
+  try {
+    // Tính khoảng thời gian từ 00:00 đến 23:59 ngày đó
+    const dayStart = new Date(`${date}T00:00:00`);
+    const dayEnd = new Date(`${date}T23:59:59`);
+
+    const result = await pool.query(
+      `SELECT appointment_date, duration_minutes FROM appointments
+       WHERE stylist_id = $1
+       AND appointment_date BETWEEN $2 AND $3
+       AND status IN ('pending', 'confirmed')`,
+      [stylist_id, dayStart, dayEnd]
+    );
+
+    res.json(result.rows); // Trả về danh sách các khung giờ đã được đặt
+  } catch (err) {
+    console.error("❌ Error fetching availability:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 // ✅ POST: Khách tạo hẹn mới
 router.post("/", verifyToken, async (req, res) => {
