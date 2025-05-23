@@ -1,83 +1,101 @@
-// ==== backend/routes/appointments.js ====
+// 📁 backend/routes/appointments.js
 import express from "express";
-const router = express.Router();
-
 import verifyToken from "../middleware/verifyToken.js";
-import checkRole from "../middleware/checkRole.js";
 import pkg from "pg";
 const { Pool } = pkg;
+
+const router = express.Router();
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
-// ✅ 1️⃣ Khách hàng tạo lịch hẹn
-router.post("/", verifyToken, checkRole(['customer']), async (req, res) => {
-  const { salon_id, staff_id, service_id, appointment_time, notes } = req.body;
-  const customer_id = req.user.db_id;  // id trong bảng users
+// ✅ POST: Khách tạo hẹn mới
+router.post("/", verifyToken, async (req, res) => {
+  const { uid } = req.user;
+  const {
+    stylist_id,
+    salon_id,
+    service_ids,
+    appointment_date,
+    duration_minutes,
+    note,
+  } = req.body;
+
+  if (!stylist_id || !salon_id || !service_ids || !appointment_date) {
+    return res.status(400).json({ error: "Missing required fields." });
+  }
 
   try {
     const result = await pool.query(
-      `INSERT INTO appointments (salon_id, customer_id, staff_id, service_id, appointment_time, notes)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [salon_id, customer_id, staff_id, service_id, appointment_time, notes]
+      `INSERT INTO appointments (customer_uid, stylist_id, salon_id, service_ids, appointment_date, duration_minutes, note)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [uid, stylist_id, salon_id, service_ids, appointment_date, duration_minutes, note || null]
     );
-
     res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error("Error creating appointment:", error.message);
-    res.status(500).json({ error: "Failed to create appointment" });
+  } catch (err) {
+    console.error("❌ Error creating appointment:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// ✅ 2️⃣ Nhân viên & chủ salon xem lịch hẹn (lọc theo salon_id)
-router.get("/", verifyToken, checkRole(['staff', 'owner']), async (req, res) => {
-  const { salon_id } = req.query;
-
+// ✅ GET: Khách lấy danh sách hẹn của mình
+router.get("/me", verifyToken, async (req, res) => {
+  const { uid } = req.user;
   try {
     const result = await pool.query(
-      `SELECT a.*, 
-              u.full_name AS customer_name, 
-              s.full_name AS staff_name,
-              sv.name AS service_name
-       FROM appointments a
-       LEFT JOIN users u ON a.customer_id = u.id
-       LEFT JOIN staff st ON a.staff_id = st.id
-       LEFT JOIN users s ON st.user_id = s.id
-       LEFT JOIN services sv ON a.service_id = sv.id
-       WHERE a.salon_id = $1
-       ORDER BY a.appointment_time ASC`,
-      [salon_id]
+      `SELECT * FROM appointments WHERE customer_uid = $1 ORDER BY appointment_date DESC`,
+      [uid]
     );
-
     res.json(result.rows);
-  } catch (error) {
-    console.error("Error fetching appointments:", error.message);
-    res.status(500).json({ error: "Failed to fetch appointments" });
+  } catch (err) {
+    console.error("❌ Error fetching appointments:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// ✅ 3️⃣ Update trạng thái cuộc hẹn (check-in/check-out)
-router.patch("/:id/status", verifyToken, checkRole(['staff', 'owner']), async (req, res) => {
-  const { status } = req.body;
+// ✅ GET: Stylist lấy lịch hẹn của mình
+router.get("/freelancer", verifyToken, async (req, res) => {
+  const { uid } = req.user;
+  try {
+    const stylist = await pool.query(
+      `SELECT id FROM freelancers WHERE firebase_uid = $1`,
+      [uid]
+    );
+    if (stylist.rows.length === 0) return res.status(403).json({ error: "Stylist not found" });
+
+    const stylistId = stylist.rows[0].id;
+    const result = await pool.query(
+      `SELECT * FROM appointments WHERE stylist_id = $1 ORDER BY appointment_date ASC`,
+      [stylistId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error fetching stylist appointments:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ✅ PATCH: Cập nhật trạng thái lịch hẹn
+router.patch("/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
+  const { status } = req.body;
+
+  if (!["pending", "confirmed", "completed", "cancelled"].includes(status)) {
+    return res.status(400).json({ error: "Invalid status value" });
+  }
 
   try {
     const result = await pool.query(
-      `UPDATE appointments SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      `UPDATE appointments SET status = $1 WHERE id = $2 RETURNING *`,
       [status, id]
     );
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: "Appointment not found" });
-    }
-
+    if (result.rows.length === 0) return res.status(404).json({ error: "Appointment not found" });
     res.json(result.rows[0]);
-  } catch (error) {
-    console.error("Error updating status:", error.message);
-    res.status(500).json({ error: "Failed to update appointment status" });
+  } catch (err) {
+    console.error("❌ Error updating appointment status:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 

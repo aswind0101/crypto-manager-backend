@@ -64,6 +64,9 @@ app.use("/api", stylistsRoute);
 //============================Services======================================
 import servicesRoute from './routes/services.js';
 app.use("/api/services", servicesRoute);
+import appointmentRoutes from "./routes/appointments.js";
+app.use("/api/appointments", appointmentRoutes);
+
 
 
 const pool = new Pool({
