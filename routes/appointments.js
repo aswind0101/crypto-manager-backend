@@ -57,6 +57,24 @@ router.post("/", verifyToken, async (req, res) => {
   if (!stylist_id || !salon_id || !service_ids || !appointment_date) {
     return res.status(400).json({ error: "Missing required fields." });
   }
+  // ✅ Kiểm tra stylist đã có lịch bị trùng không
+  const newStart = new Date(appointment_date);
+  const newEnd = new Date(newStart.getTime() + duration_minutes * 60000);
+
+  const conflictCheck = await pool.query(
+    `SELECT 1 FROM appointments 
+   WHERE stylist_id = $1 
+     AND status IN ('pending', 'confirmed') 
+     AND (
+       appointment_date < $3
+       AND appointment_date + INTERVAL '1 minute' * COALESCE(duration_minutes, 30) > $2
+     )`,
+    [stylist_id, newStart, newEnd]
+  );
+
+  if (conflictCheck.rows.length > 0) {
+    return res.status(409).json({ error: "❌ Stylist already has an appointment in this time range." });
+  }
 
   try {
     const result = await pool.query(
