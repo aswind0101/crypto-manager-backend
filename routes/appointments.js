@@ -24,10 +24,13 @@ router.get("/availability", async (req, res) => {
     const dayEnd = new Date(`${date}T23:59:59`);
 
     const result = await pool.query(
-      `SELECT appointment_date, duration_minutes FROM appointments
+      `SELECT 
+         appointment_date, 
+         COALESCE(duration_minutes, 30) AS duration_minutes
+       FROM appointments
        WHERE stylist_id = $1
-       AND appointment_date BETWEEN $2 AND $3
-       AND status IN ('pending', 'confirmed')`,
+         AND appointment_date BETWEEN $2 AND $3
+         AND status IN ('pending', 'confirmed')`,
       [stylist_id, dayStart, dayEnd]
     );
 
@@ -37,6 +40,7 @@ router.get("/availability", async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 
 // ✅ POST: Khách tạo hẹn mới
 router.post("/", verifyToken, async (req, res) => {
