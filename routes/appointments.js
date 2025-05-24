@@ -93,10 +93,29 @@ router.post("/", verifyToken, async (req, res) => {
 router.get("/me", verifyToken, async (req, res) => {
   const { uid } = req.user;
   try {
-    const result = await pool.query(
-      `SELECT * FROM appointments WHERE customer_uid = $1 ORDER BY appointment_date DESC`,
-      [uid]
-    );
+    const result = await pool.query(`
+  SELECT 
+    a.id,
+    a.appointment_date,
+    a.duration_minutes,
+    a.note,
+    a.status,
+    f.name AS stylist_name,
+    f.avatar_url AS stylist_avatar,
+    f.specialization AS stylist_specialization,
+    s.name AS salon_name,
+    ARRAY(
+      SELECT json_build_object('id', ss.id, 'name', ss.name, 'price', ss.price, 'duration', ss.duration_minutes)
+      FROM salon_services ss
+      WHERE ss.id = ANY(a.service_ids)
+    ) AS services
+  FROM appointments a
+  JOIN freelancers f ON a.stylist_id = f.id
+  JOIN salons s ON a.salon_id = s.id
+  WHERE a.customer_uid = $1
+  ORDER BY a.appointment_date DESC
+`, [uid]);
+
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Error fetching appointments:", err.message);
