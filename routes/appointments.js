@@ -192,6 +192,9 @@ router.delete("/:id", verifyToken, async (req, res) => {
     if (status !== "pending") {
       return res.status(400).json({ error: "Only pending appointments can be cancelled." });
     }
+    console.log("📌 NOW:", new Date().toISOString());
+    console.log("📌 appointment_date:", appointment_date.toISOString?.() || appointment_date);
+    console.log("📌 is_future:", is_future);
 
     if (!is_future) {
       return res.status(400).json({ error: "Cannot cancel past appointments." });
