@@ -173,11 +173,11 @@ router.delete("/:id", verifyToken, async (req, res) => {
 
   try {
     const check = await pool.query(`
-      SELECT 
-        appointment_date, 
-        status,
-        (appointment_date AT TIME ZONE 'America/Los_Angeles') > 
-        (NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles') AS is_future
+      SELECT appointment_date, status,
+        (
+          appointment_date::timestamp > 
+          (NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')
+        ) AS is_future
       FROM appointments
       WHERE id = $1 AND customer_uid = $2
     `, [id, uid]);
@@ -186,9 +186,12 @@ router.delete("/:id", verifyToken, async (req, res) => {
       return res.status(404).json({ error: "Appointment not found" });
     }
 
-    const { status, is_future } = check.rows[0];
+    const { status, is_future, appointment_date } = check.rows[0];
 
-    if (status !== 'pending') {
+    console.log("🧪 appointment_date:", appointment_date);
+    console.log("✅ is_future:", is_future);
+
+    if (status !== "pending") {
       return res.status(400).json({ error: "Only pending appointments can be cancelled." });
     }
 
