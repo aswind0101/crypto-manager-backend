@@ -178,7 +178,7 @@ router.delete("/:id", verifyToken, async (req, res) => {
       FROM appointments
       WHERE id = $1 AND customer_uid = $2
     `, [id, uid]);
-
+    console.log("📅 Debug Cancel Check:", check.rows[0])
     if (check.rows.length === 0) {
       return res.status(404).json({ error: "Appointment not found" });
     }
