@@ -173,40 +173,29 @@ router.delete("/:id", verifyToken, async (req, res) => {
 
   try {
     const check = await pool.query(`
-  SELECT appointment_date, status,
-         appointment_date > NOW() AS is_future
-  FROM appointments
-  WHERE id = $1 AND customer_uid = $2
-`, [id, uid]);
-
+      SELECT appointment_date, status
+      FROM appointments
+      WHERE id = $1 AND customer_uid = $2
+    `, [id, uid]);
 
     if (check.rows.length === 0) {
       return res.status(404).json({ error: "Appointment not found" });
     }
 
-    const { status, is_future, appointment_date } = check.rows[0];
-
-    console.log("🧪 appointment_date:", appointment_date);
-    console.log("✅ is_future:", is_future);
+    const { status } = check.rows[0];
 
     if (status !== "pending") {
       return res.status(400).json({ error: "Only pending appointments can be cancelled." });
     }
-    console.log("📌 NOW:", new Date().toISOString());
-    console.log("📌 appointment_date:", appointment_date.toISOString?.() || appointment_date);
-    console.log("📌 is_future:", is_future);
 
-    if (!is_future) {
-      return res.status(400).json({ error: "Cannot cancel past appointments." });
-    }
-
+    // ✅ KHÔNG kiểm tra thời gian nữa — frontend lo phần này rồi
     await pool.query("DELETE FROM appointments WHERE id = $1", [id]);
+
     res.json({ message: "✅ Appointment cancelled." });
   } catch (err) {
     console.error("❌ Error cancelling appointment:", err.message);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
-
 
 export default router;
