@@ -190,7 +190,8 @@ router.delete("/:id", verifyToken, async (req, res) => {
     }
 
     const now = new Date();
-    const apptDate = new Date(appointment_date);
+    const apptDate = new Date(appointment_date.toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+
     if (apptDate <= now) {
       return res.status(400).json({ error: "Cannot cancel past appointments." });
     }
