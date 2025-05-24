@@ -174,7 +174,7 @@ router.delete("/:id", verifyToken, async (req, res) => {
   try {
     const check = await pool.query(`
       SELECT appointment_date, status,
-             appointment_date > NOW() AS is_future
+             appointment_date > (NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles') AS is_future
       FROM appointments
       WHERE id = $1 AND customer_uid = $2
     `, [id, uid]);
@@ -200,6 +200,5 @@ router.delete("/:id", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
-
 
 export default router;
