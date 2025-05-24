@@ -173,16 +173,15 @@ router.delete("/:id", verifyToken, async (req, res) => {
 
   try {
     const check = await pool.query(`
-  SELECT 
-    appointment_date, 
-    status,
-    (appointment_date AT TIME ZONE 'America/Los_Angeles') > 
-    (NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles') AS is_future
-  FROM appointments
-  WHERE id = $1 AND customer_uid = $2
-`, [id, uid]);
+      SELECT 
+        appointment_date, 
+        status,
+        (appointment_date AT TIME ZONE 'America/Los_Angeles') > 
+        (NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles') AS is_future
+      FROM appointments
+      WHERE id = $1 AND customer_uid = $2
+    `, [id, uid]);
 
-    console.log("📅 Debug Cancel Check:", check.rows[0])
     if (check.rows.length === 0) {
       return res.status(404).json({ error: "Appointment not found" });
     }
@@ -204,5 +203,6 @@ router.delete("/:id", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 
 export default router;
