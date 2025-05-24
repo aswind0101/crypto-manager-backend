@@ -190,7 +190,15 @@ router.delete("/:id", verifyToken, async (req, res) => {
     }
 
     const now = new Date();
-    const apptDate = new Date(appointment_date.toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+    const raw = appointment_date; // kiểu Date, đã sai múi giờ vì lack of tz
+    const apptDate = new Date(
+      raw.getFullYear(),
+      raw.getMonth(),
+      raw.getDate(),
+      raw.getHours(),
+      raw.getMinutes(),
+      raw.getSeconds()
+    );
 
     if (apptDate <= now) {
       return res.status(400).json({ error: "Cannot cancel past appointments." });
