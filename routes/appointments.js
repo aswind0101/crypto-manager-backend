@@ -166,5 +166,43 @@ router.patch("/:id", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+// ✅ DELETE: Khách huỷ lịch nếu chưa tới giờ
+router.delete("/:id", verifyToken, async (req, res) => {
+  const { uid } = req.user;
+  const { id } = req.params;
+
+  try {
+    // Kiểm tra xem lịch thuộc về user không và còn hẹn trong tương lai
+    const check = await pool.query(`
+      SELECT appointment_date, status
+      FROM appointments
+      WHERE id = $1 AND customer_uid = $2
+    `, [id, uid]);
+
+    if (check.rows.length === 0) {
+      return res.status(404).json({ error: "Appointment not found" });
+    }
+
+    const { appointment_date, status } = check.rows[0];
+
+    if (status !== 'pending') {
+      return res.status(400).json({ error: "Only pending appointments can be cancelled." });
+    }
+
+    const now = new Date();
+    const apptDate = new Date(appointment_date);
+    if (apptDate <= now) {
+      return res.status(400).json({ error: "Cannot cancel past appointments." });
+    }
+
+    // ✅ Xoá hoặc cập nhật trạng thái → ở đây chọn xoá hoàn toàn
+    await pool.query("DELETE FROM appointments WHERE id = $1", [id]);
+
+    res.json({ message: "✅ Appointment cancelled." });
+  } catch (err) {
+    console.error("❌ Error cancelling appointment:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 export default router;
