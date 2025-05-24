@@ -173,14 +173,12 @@ router.delete("/:id", verifyToken, async (req, res) => {
 
   try {
     const check = await pool.query(`
-      SELECT appointment_date, status,
-        (
-          appointment_date::timestamp > 
-          (NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')
-        ) AS is_future
-      FROM appointments
-      WHERE id = $1 AND customer_uid = $2
-    `, [id, uid]);
+  SELECT appointment_date, status,
+         appointment_date > NOW() AS is_future
+  FROM appointments
+  WHERE id = $1 AND customer_uid = $2
+`, [id, uid]);
+
 
     if (check.rows.length === 0) {
       return res.status(404).json({ error: "Appointment not found" });
