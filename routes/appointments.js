@@ -78,8 +78,14 @@ router.post("/", verifyToken, async (req, res) => {
 
   try {
     const result = await pool.query(
-      `INSERT INTO appointments (customer_uid, stylist_id, salon_id, service_ids, appointment_date, duration_minutes, note)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      `INSERT INTO appointments (
+     customer_uid, stylist_id, salon_id, service_ids,
+     appointment_date, duration_minutes, note
+   ) VALUES (
+     $1, $2, $3, $4,
+     TO_TIMESTAMP($5, 'YYYY-MM-DD HH24:MI:SS') AT TIME ZONE 'America/Los_Angeles',
+     $6, $7
+   ) RETURNING *`,
       [uid, stylist_id, salon_id, service_ids, appointment_date, duration_minutes, note || null]
     );
     res.status(201).json(result.rows[0]);
