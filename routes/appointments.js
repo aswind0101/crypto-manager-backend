@@ -134,10 +134,34 @@ router.get("/freelancer", verifyToken, async (req, res) => {
     if (stylist.rows.length === 0) return res.status(403).json({ error: "Stylist not found" });
 
     const stylistId = stylist.rows[0].id;
-    const result = await pool.query(
-      `SELECT * FROM appointments WHERE stylist_id = $1 ORDER BY appointment_date ASC`,
-      [stylistId]
-    );
+    const result = await pool.query(`
+  SELECT 
+    a.id,
+    a.appointment_date,
+    a.duration_minutes,
+    a.status,
+    a.note,
+    a.customer_uid,
+    c.display_name AS customer_name,
+    s.name AS salon_name,
+    ARRAY(
+      SELECT json_build_object(
+        'id', ss.id,
+        'name', ss.name,
+        'price', ss.price,
+        'duration', ss.duration_minutes
+      )
+      FROM salon_services ss
+      WHERE ss.id = ANY(a.service_ids)
+    ) AS services
+  FROM appointments a
+  JOIN freelancers f ON a.stylist_id = f.id
+  LEFT JOIN users c ON a.customer_uid = c.uid
+  LEFT JOIN salons s ON a.salon_id = s.id
+  WHERE f.firebase_uid = $1
+  ORDER BY a.appointment_date ASC
+`, [uid]);
+
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Error fetching stylist appointments:", err.message);
