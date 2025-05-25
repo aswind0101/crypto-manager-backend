@@ -136,30 +136,30 @@ router.get("/freelancer", verifyToken, async (req, res) => {
     const stylistId = stylist.rows[0].id;
     const result = await pool.query(`
   SELECT 
-    a.id,
-    a.appointment_date,
-    a.duration_minutes,
-    a.status,
-    a.note,
-    a.customer_uid,
-    c.display_name AS customer_name,
-    s.name AS salon_name,
-    ARRAY(
-      SELECT json_build_object(
-        'id', ss.id,
-        'name', ss.name,
-        'price', ss.price,
-        'duration', ss.duration_minutes
-      )
-      FROM salon_services ss
-      WHERE ss.id = ANY(a.service_ids)
-    ) AS services
-  FROM appointments a
-  JOIN freelancers f ON a.stylist_id = f.id
-  LEFT JOIN users c ON a.customer_uid = c.uid
-  LEFT JOIN salons s ON a.salon_id = s.id
-  WHERE f.firebase_uid = $1
-  ORDER BY a.appointment_date ASC
+  a.id,
+  a.appointment_date,
+  a.duration_minutes,
+  a.status,
+  a.note,
+  a.customer_uid,
+  c.name AS customer_name,
+  s.name AS salon_name,
+  ARRAY(
+    SELECT json_build_object(
+      'id', ss.id,
+      'name', ss.name,
+      'price', ss.price,
+      'duration', ss.duration_minutes
+    )
+    FROM salon_services ss
+    WHERE ss.id = ANY(a.service_ids)
+  ) AS services
+FROM appointments a
+JOIN freelancers f ON a.stylist_id = f.id
+LEFT JOIN customers c ON a.customer_uid = c.firebase_uid
+LEFT JOIN salons s ON a.salon_id = s.id
+WHERE f.firebase_uid = $1
+ORDER BY a.appointment_date ASC
 `, [uid]);
 
     res.json(result.rows);
