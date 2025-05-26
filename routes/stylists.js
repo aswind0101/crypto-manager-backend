@@ -56,18 +56,13 @@ router.get("/stylists/online", async (req, res) => {
         };
       }
 
-      // 🔍 Truy vấn dịch vụ tương ứng với stylist
-      const specializations = Array.isArray(row.specialization)
-        ? row.specialization
-        : [row.specialization];
-
       const servicesRes = await pool.query(
-        `SELECT id, name, price, duration_minutes FROM salon_services
-   WHERE salon_id = $1 AND specialization = ANY($2) AND is_active = true
+        `SELECT id, name, price, duration_minutes 
+   FROM salon_services 
+   WHERE id = ANY($1) AND salon_id = $2 AND is_active = true
    ORDER BY name`,
-        [salonId, specializations]
+        [row.services, salonId]
       );
-
 
       grouped[salonId].stylists.push({
         id: row.stylist_id,
@@ -78,8 +73,9 @@ router.get("/stylists/online", async (req, res) => {
         rating: row.rating,
         description: row.description,
         salon_id: salonId,
-        services: servicesRes.rows || [],
+        services: servicesRes.rows || [], // 👈 dùng dữ liệu đã lọc theo freelancer.services
       });
+
     }
 
     const salons = Object.values(grouped);
