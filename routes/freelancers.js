@@ -586,5 +586,25 @@ router.patch("/mark-payment-added", verifyToken, async (req, res) => {
     }
     await updateIsQualifiedStatus(uid);
 });
+// PATCH: cập nhật danh sách service_ids stylist chọn
+router.patch("/services", verifyToken, async (req, res) => {
+  const { uid } = req.user;
+  const { service_ids } = req.body;
+
+  if (!Array.isArray(service_ids) || service_ids.some((id) => isNaN(id))) {
+    return res.status(400).json({ error: "Invalid service_ids" });
+  }
+
+  try {
+    await pool.query(
+      `UPDATE freelancers SET services = $1 WHERE firebase_uid = $2`,
+      [service_ids, uid]
+    );
+    res.json({ message: "✅ Services updated", service_ids });
+  } catch (err) {
+    console.error("❌ Error updating services:", err.message);
+    res.status(500).json({ error: "Failed to update services" });
+  }
+});
 
 export default router;
