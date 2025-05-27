@@ -22,6 +22,7 @@ router.get("/stylists/online", async (req, res) => {
         f.specialization,
         f.rating,
         f.about AS description,
+        f.services,
         s.id AS salon_id,
         s.name AS salon_name,
         s.address AS salon_address,
@@ -56,13 +57,18 @@ router.get("/stylists/online", async (req, res) => {
         };
       }
 
-      const servicesRes = await pool.query(
-        `SELECT id, name, price, duration_minutes 
-   FROM salon_services 
-   WHERE id = ANY($1) AND salon_id = $2 AND is_active = true
-   ORDER BY name`,
-        [row.services, salonId]
-      );
+      const serviceIds = row.services || [];
+      let servicesRes = { rows: [] };
+
+      if (serviceIds.length > 0) {
+        servicesRes = await pool.query(
+          `SELECT id, name, price, duration_minutes 
+     FROM salon_services 
+     WHERE id = ANY($1) AND salon_id = $2 AND is_active = true
+     ORDER BY name`,
+          [serviceIds, salonId]
+        );
+      }
 
       grouped[salonId].stylists.push({
         id: row.stylist_id,
