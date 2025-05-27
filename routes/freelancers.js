@@ -385,7 +385,8 @@ router.get("/onboarding", verifyToken, async (req, res) => {
      id_doc_status,
      avatar_url,
      license_url,
-     id_doc_url
+     id_doc_url,
+     services
    FROM freelancers
    WHERE firebase_uid = $1`,
             [uid]
