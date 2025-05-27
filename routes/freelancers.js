@@ -22,25 +22,25 @@ const pool = new Pool({
 
 
 cloudinary.v2.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
 const storage = new CloudinaryStorage({
-  cloudinary: cloudinary.v2,
-  params: async (req, file) => {
-    let folder = 'freelancers/others';
-    if (req.originalUrl.includes('avatar')) folder = 'freelancers/avatars';
-    if (req.originalUrl.includes('license')) folder = 'freelancers/licenses';
-    if (req.originalUrl.includes('id')) folder = 'freelancers/id_documents';
+    cloudinary: cloudinary.v2,
+    params: async (req, file) => {
+        let folder = 'freelancers/others';
+        if (req.originalUrl.includes('avatar')) folder = 'freelancers/avatars';
+        if (req.originalUrl.includes('license')) folder = 'freelancers/licenses';
+        if (req.originalUrl.includes('id')) folder = 'freelancers/id_documents';
 
-    return {
-      folder,
-      allowed_formats: ['jpg', 'png', 'jpeg', 'pdf'],
-      public_id: `${req.user.uid}_${Date.now()}`,
-    };
-  },
+        return {
+            folder,
+            allowed_formats: ['jpg', 'png', 'jpeg', 'pdf'],
+            public_id: `${req.user.uid}_${Date.now()}`,
+        };
+    },
 });
 
 const upload = multer({ storage });
@@ -386,6 +386,8 @@ router.get("/onboarding", verifyToken, async (req, res) => {
      avatar_url,
      license_url,
      id_doc_url,
+     salon_id,            
+     specialization,       
      services
    FROM freelancers
    WHERE firebase_uid = $1`,
@@ -589,23 +591,23 @@ router.patch("/mark-payment-added", verifyToken, async (req, res) => {
 });
 // PATCH: cập nhật danh sách service_ids stylist chọn
 router.patch("/services", verifyToken, async (req, res) => {
-  const { uid } = req.user;
-  const { service_ids } = req.body;
+    const { uid } = req.user;
+    const { service_ids } = req.body;
 
-  if (!Array.isArray(service_ids) || service_ids.some((id) => isNaN(id))) {
-    return res.status(400).json({ error: "Invalid service_ids" });
-  }
+    if (!Array.isArray(service_ids) || service_ids.some((id) => isNaN(id))) {
+        return res.status(400).json({ error: "Invalid service_ids" });
+    }
 
-  try {
-    await pool.query(
-      `UPDATE freelancers SET services = $1 WHERE firebase_uid = $2`,
-      [service_ids, uid]
-    );
-    res.json({ message: "✅ Services updated", service_ids });
-  } catch (err) {
-    console.error("❌ Error updating services:", err.message);
-    res.status(500).json({ error: "Failed to update services" });
-  }
+    try {
+        await pool.query(
+            `UPDATE freelancers SET services = $1 WHERE firebase_uid = $2`,
+            [service_ids, uid]
+        );
+        res.json({ message: "✅ Services updated", service_ids });
+    } catch (err) {
+        console.error("❌ Error updating services:", err.message);
+        res.status(500).json({ error: "Failed to update services" });
+    }
 });
 
 export default router;
