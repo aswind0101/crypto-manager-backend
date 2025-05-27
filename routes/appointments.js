@@ -2,6 +2,7 @@
 import express from "express";
 import verifyToken from "../middleware/verifyToken.js";
 import { sendBookingEmail } from "../utils/sendBookingEmail.js";
+import { sendAppointmentStatusEmail } from "../utils/sendAppointmentStatusEmail.js";
 import dayjs from "dayjs";
 import pkg from "pg";
 const { Pool } = pkg;
@@ -241,8 +242,55 @@ router.patch("/:id", verifyToken, async (req, res) => {
       `UPDATE appointments SET status = $1 WHERE id = $2 RETURNING *`,
       [status, id]
     );
-    if (result.rows.length === 0) return res.status(404).json({ error: "Appointment not found" });
-    res.json(result.rows[0]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Appointment not found" });
+    }
+
+    const appt = result.rows[0];
+
+    // ✅ Gửi email nếu là confirmed hoặc cancelled
+    if (["confirmed", "cancelled"].includes(status)) {
+      try {
+        const customerRes = await pool.query(
+          `SELECT email FROM users WHERE firebase_uid = $1`,
+          [appt.customer_uid]
+        );
+        const to = customerRes.rows[0]?.email;
+
+        const stylistRes = await pool.query(
+          `SELECT name FROM freelancers WHERE id = $1`,
+          [appt.stylist_id]
+        );
+        const salonRes = await pool.query(
+          `SELECT name FROM salons WHERE id = $1`,
+          [appt.salon_id]
+        );
+        const servicesRes = await pool.query(
+          `SELECT name, price, duration_minutes FROM salon_services WHERE id = ANY($1)`,
+          [appt.service_ids]
+        );
+
+        const formattedDate = dayjs(appt.appointment_date).format("MMMM D, YYYY – hh:mm A");
+
+        if (to) {
+          await sendAppointmentStatusEmail({
+            to,
+            customerName: to.split("@")[0],
+            stylistName: stylistRes.rows[0]?.name || "Stylist",
+            salonName: salonRes.rows[0]?.name || "Salon",
+            dateTime: formattedDate,
+            status,
+            services: servicesRes.rows,
+          });
+          console.log(`📧 Email sent to ${to} for status: ${status}`);
+        }
+      } catch (emailErr) {
+        console.error("❌ Failed to send status email:", emailErr.message);
+      }
+    }
+
+    res.json(appt);
   } catch (err) {
     console.error("❌ Error updating appointment status:", err.message);
     res.status(500).json({ error: "Internal Server Error" });
