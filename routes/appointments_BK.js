@@ -1,8 +1,6 @@
 // 📁 backend/routes/appointments.js
 import express from "express";
 import verifyToken from "../middleware/verifyToken.js";
-import { sendBookingEmail } from "../utils/sendBookingEmail.js";
-import dayjs from "dayjs";
 import pkg from "pg";
 const { Pool } = pkg;
 
@@ -59,94 +57,44 @@ router.post("/", verifyToken, async (req, res) => {
   if (!stylist_id || !salon_id || !service_ids || !appointment_date) {
     return res.status(400).json({ error: "Missing required fields." });
   }
-
   // ✅ Kiểm tra stylist đã có lịch bị trùng không
   const newStart = new Date(appointment_date);
   const newEnd = new Date(newStart.getTime() + duration_minutes * 60000);
 
   const conflictCheck = await pool.query(
     `SELECT 1 FROM appointments 
-     WHERE stylist_id = $1 
-       AND status IN ('pending', 'confirmed') 
-       AND (
-         appointment_date < $3
-         AND appointment_date + INTERVAL '1 minute' * COALESCE(duration_minutes, 30) > $2
-       )`,
+   WHERE stylist_id = $1 
+     AND status IN ('pending', 'confirmed') 
+     AND (
+       appointment_date < $3
+       AND appointment_date + INTERVAL '1 minute' * COALESCE(duration_minutes, 30) > $2
+     )`,
     [stylist_id, newStart, newEnd]
   );
 
   if (conflictCheck.rows.length > 0) {
-    return res.status(409).json({
-      error: "❌ Stylist already has an appointment in this time range.",
-    });
+    return res.status(409).json({ error: "❌ Stylist already has an appointment in this time range." });
   }
 
   try {
     const result = await pool.query(
       `INSERT INTO appointments (
-         customer_uid, stylist_id, salon_id, service_ids,
-         appointment_date, duration_minutes, note
-       ) VALUES (
-         $1, $2, $3, $4,
-         TO_TIMESTAMP($5, 'YYYY-MM-DD HH24:MI:SS'),
-         $6, $7
-       ) RETURNING *`,
+     customer_uid, stylist_id, salon_id, service_ids,
+     appointment_date, duration_minutes, note
+   ) VALUES (
+     $1, $2, $3, $4,
+     TO_TIMESTAMP($5, 'YYYY-MM-DD HH24:MI:SS'),
+     $6, $7
+   ) RETURNING *`,
       [uid, stylist_id, salon_id, service_ids, appointment_date, duration_minutes, note || null]
     );
-
-    const appointment = result.rows[0];
-
-    // ✅ Gửi email xác nhận
-    try {
-      // Lấy email khách hàng
-      const userRes = await pool.query(
-        `SELECT email FROM users WHERE firebase_uid = $1`,
-        [uid]
-      );
-      const to = userRes.rows[0]?.email;
-
-      // Lấy tên stylist + salon
-      const stylistRes = await pool.query(
-        `SELECT name FROM freelancers WHERE id = $1`,
-        [stylist_id]
-      );
-      const stylistName = stylistRes.rows[0]?.name || "Stylist";
-
-      const salonRes = await pool.query(
-        `SELECT name FROM salons WHERE id = $1`,
-        [salon_id]
-      );
-      const salonName = salonRes.rows[0]?.name || "Salon";
-
-      // Lấy thông tin dịch vụ
-      const serviceRes = await pool.query(
-        `SELECT name, price, duration_minutes FROM salon_services WHERE id = ANY($1)`,
-        [service_ids]
-      );
-
-      const formattedDate = dayjs(appointment_date).format("MMMM D, YYYY – hh:mm A");
-
-      if (to) {
-        await sendBookingEmail({
-          to,
-          customerName: to.split("@")[0],
-          stylistName,
-          salonName,
-          dateTime: formattedDate,
-          services: serviceRes.rows,
-        });
-        console.log("✅ Booking email sent to", to);
-      }
-    } catch (emailErr) {
-      console.error("❌ Failed to send booking email:", emailErr.message);
-    }
-
-    res.status(201).json(appointment);
+    res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error("❌ Error creating appointment:", err.message);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 // ✅ GET: Khách lấy danh sách hẹn của mình
 router.get("/me", verifyToken, async (req, res) => {
   const { uid } = req.user;
