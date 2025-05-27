@@ -1,55 +1,58 @@
 import { Resend } from 'resend';
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-export async function sendBookingEmail({ to, customerName, stylistName, dateTime, salonName, services }) {
-  const serviceList = services.map(s => `• ${s.name} – $${s.price} / ${s.duration_minutes} mins`).join("<br/>");
+export async function sendAppointmentStatusEmail({ to, customerName, stylistName, status, dateTime, salonName, services }) {
+  const serviceList = services.map(s =>
+    `<li><strong>${s.name}</strong> – $${s.price} / ${s.duration_minutes} mins</li>`
+  ).join("");
 
   const html = `
-    <div style="font-family: 'Segoe UI', sans-serif; line-height: 1.6; color: #111; background: linear-gradient(to bottom right, #ec4899, #fbbf24, #10b981); padding: 2rem; border-radius: 12px; color: white; box-shadow: 0 8px 20px rgba(0,0,0,0.1);">
-      <h2 style="margin-top: 0; font-size: 1.8rem; color: #fff;">💅 Appointment Request Sent!</h2>
-      <p>Hi <strong>${customerName}</strong>,</p>
-      <p>Thank you for booking with <strong>${stylistName}</strong> at <strong>${salonName}</strong>.</p>
-      <p>📅 <strong>Date & Time:</strong> ${dateTime}</p>
-      <p>💼 <strong>Services:</strong><br/>${serviceList}</p>
+  <div style="max-width: 600px; margin: auto; font-family: 'Segoe UI', sans-serif; background: #fff; border: 2px solid #10b981; border-radius: 16px; padding: 24px; color: #111;">
+    <h2 style="margin-top: 0; font-size: 24px; color: ${status === "confirmed" ? "#10b981" : "#dc2626"};">
+      ${status === "confirmed" ? "✅ Appointment Confirmed" : "❌ Appointment Cancelled"}
+    </h2>
 
-      <div style="margin: 24px 0; padding: 16px; background: rgba(255, 255, 255, 0.15); border-left: 4px solid #fff; border-radius: 8px;">
-        <p><strong>⏳ What happens next?</strong></p>
-        <ul style="margin: 0; padding-left: 1rem;">
-          <li>Our stylist has been notified about your request.</li>
-          <li>You'll receive a confirmation email once the stylist accepts.</li>
-          <li>Please check your inbox for real-time updates.</li>
-        </ul>
-      </div>
+    <p>Hi <strong>${customerName}</strong>,</p>
+    <p>Your appointment with <strong>${stylistName}</strong> at <strong>${salonName}</strong> has just been <strong>${status}</strong>.</p>
 
-      <p>If you have any questions, feel free to reply to this email.</p>
-
-      <p style="margin-top: 2rem; font-size: 0.9rem; color: #f1f5f9;">
-        — Sent from <strong>OneTool Salon</strong> • Bringing stylists & customers together 💖
-      </p>
+    <div style="background: #f9f9f9; padding: 16px; border-radius: 12px; margin: 20px 0;">
+      <p style="margin: 0;">📅 <strong>Date & Time:</strong> ${dateTime}</p>
+      <ul style="margin: 10px 0 0 20px; padding: 0;">${serviceList}</ul>
     </div>
+
+    ${status === "confirmed" 
+      ? "<p>Please arrive 5–10 minutes early and contact the stylist if needed. 🎉</p>"
+      : "<p>If this cancellation was unexpected, you may rebook using the app anytime.</p>"
+    }
+
+    <p style="margin: 24px 0 8px 0; font-size: 13px; color: #666;">
+      — OneTool Salon Team
+    </p>
+  </div>
   `;
 
   const text = `
 Hi ${customerName},
 
-Thanks for booking with ${stylistName} at ${salonName}.
+Your appointment with ${stylistName} at ${salonName} has been ${status}.
 
-🕒 Date & Time: ${dateTime}
-💅 Services:
+Date & Time: ${dateTime}
+Services:
 ${services.map(s => `- ${s.name}: $${s.price}, ${s.duration_minutes} mins`).join("\n")}
 
-What happens next?
-• Your appointment has been sent to the stylist.
-• You'll receive a confirmation email once they accept.
-• Please check your inbox for updates.
+${status === "confirmed"
+    ? "Please arrive early and get ready!"
+    : "You may rebook anytime via the app."}
 
-— OneTool Salon Team
+— OneTool Salon
 `;
 
   return resend.emails.send({
     from: 'OneTool Salon <support@onetool.it.com>',
     to,
-    subject: `📩 Appointment request sent to ${stylistName}`,
+    subject: status === "confirmed"
+      ? `✅ Your appointment is confirmed!`
+      : `❌ Your appointment has been cancelled`,
     html,
     text
   });
