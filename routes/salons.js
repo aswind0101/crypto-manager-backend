@@ -227,5 +227,31 @@ router.delete("/:id", verifyToken, async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+// ✅ GET: Lấy danh sách dịch vụ theo specialization
+router.get("/:id/services-by-specialization", verifyToken, async (req, res) => {
+  const salonId = req.params.id;
+  const specializationStr = req.query.specialization;
+
+  if (!salonId || !specializationStr) {
+    return res.status(400).json({ error: "Missing salon_id or specialization" });
+  }
+
+  const specialization = specializationStr.split(",").map((s) => s.trim());
+
+  try {
+    const result = await pool.query(
+      `SELECT id, name, price, duration_minutes
+       FROM salon_services
+       WHERE salon_id = $1 AND specialization = ANY($2) AND is_active = true
+       ORDER BY name`,
+      [salonId, specialization]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error fetching services by specialization:", err.message);
+    res.status(500).json({ error: "Failed to fetch services" });
+  }
+});
 
 export default router;
