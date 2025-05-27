@@ -21,7 +21,7 @@ export async function sendBookingEmail({ to, customerName, stylistName, dateTime
         </ul>
       </div>
 
-      <p>If you have any questions, feel free to reply to this email.</p>
+      <p>⚠ Note: This is an automated message from OneTool. Please do not reply.</p>
 
       <p style="margin-top: 2rem; font-size: 0.9rem; color: #f1f5f9;">
         — Sent from <strong>OneTool Salon</strong> • Bringing stylists & customers together 💖
@@ -47,7 +47,7 @@ What happens next?
 `;
 
   return resend.emails.send({
-    from: 'OneTool Salon <support@onetool.it.com>',
+    from: 'OneTool Salon <noreply@onetool.it.com>',
     to,
     subject: `📩 Appointment request sent to ${stylistName}`,
     html,
