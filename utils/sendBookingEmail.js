@@ -2,54 +2,56 @@ import { Resend } from 'resend';
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function sendBookingEmail({ to, customerName, stylistName, dateTime, salonName, services }) {
-    const serviceList = services.map(s =>
-        `<li><strong>${s.name}</strong> – $${s.price} / ${s.duration_minutes} mins</li>`
-    ).join("");
+    const serviceList = services.map(s => `• ${s.name} – $${s.price} / ${s.duration_minutes} mins`).join("<br/>");
 
     const html = `
-  <div style="max-width: 600px; margin: auto; font-family: 'Segoe UI', sans-serif; background: linear-gradient(to bottom right, #ec4899, #fbbf24, #10b981); border-radius: 16px; padding: 24px; color: #fff; box-shadow: 0 6px 24px rgba(0,0,0,0.1);">
-    <h2 style="margin-top: 0; font-size: 24px;">📩 Appointment Request Sent</h2>
-    <p style="margin: 12px 0;">Hi <strong>${customerName}</strong>,</p>
-    <p style="margin: 12px 0;">You've requested an appointment with <strong>${stylistName}</strong> at <strong>${salonName}</strong>.</p>
-    
-    <div style="background: rgba(255, 255, 255, 0.15); padding: 16px; border-radius: 12px; margin: 20px 0;">
-      <p style="margin: 0;">📅 <strong>Date & Time:</strong> ${dateTime}</p>
-      <ul style="margin: 10px 0 0 20px; padding: 0;">${serviceList}</ul>
+    <div style="font-family: 'Segoe UI', sans-serif; line-height: 1.6; color: #111; background: linear-gradient(to bottom right, #ec4899, #fbbf24, #10b981); padding: 2rem; border-radius: 12px; color: white; box-shadow: 0 8px 20px rgba(0,0,0,0.1);">
+      <h2 style="margin-top: 0; font-size: 1.8rem; color: #fff;">💅 Appointment Request Sent!</h2>
+      <p>Hi <strong>${customerName}</strong>,</p>
+      <p>Thank you for booking with <strong>${stylistName}</strong> at <strong>${salonName}</strong>.</p>
+      <p>📅 <strong>Date & Time:</strong> ${dateTime}</p>
+      <p>💼 <strong>Services:</strong><br/>${serviceList}</p>
+
+      <div style="margin: 24px 0; padding: 16px; background: rgba(255, 255, 255, 0.15); border-left: 4px solid #fff; border-radius: 8px;">
+        <p><strong>⏳ What happens next?</strong></p>
+        <ul style="margin: 0; padding-left: 1rem;">
+          <li>Our stylist has been notified about your request.</li>
+          <li>You'll receive a confirmation email once the stylist accepts.</li>
+          <li>Please check your inbox for real-time updates.</li>
+        </ul>
+      </div>
+
+      <p>If you have any questions, feel free to reply to this email.</p>
+
+      <p style="margin-top: 2rem; font-size: 0.9rem; color: #f1f5f9;">
+        — Sent from <strong>OneTool Salon</strong> • Bringing stylists & customers together 💖
+      </p>
     </div>
-
-    <p style="margin: 16px 0;">
-      ⏳ The stylist has been notified and will confirm your appointment shortly.<br/>
-      📥 You will receive an email update once it's confirmed.
-    </p>
-
-    <p style="margin: 24px 0 8px 0; font-size: 13px; color: #f1f5f9;">
-      — Sent from <strong>OneTool Salon</strong><br/>
-      Bringing stylists & customers together 💖
-    </p>
-  </div>
   `;
 
     const text = `
 Hi ${customerName},
 
-You've requested an appointment with ${stylistName} at ${salonName}.
+Thanks for booking with ${stylistName} at ${salonName}.
 
 🕒 Date & Time: ${dateTime}
-
 💅 Services:
 ${services.map(s => `- ${s.name}: $${s.price}, ${s.duration_minutes} mins`).join("\n")}
 
-⏳ The stylist has been notified.
-📥 You'll get an email once it's confirmed.
+What happens next?
+• Your appointment has been sent to the stylist.
+• You'll receive a confirmation email once they accept.
+• Please check your inbox for updates.
 
-— OneTool Salon
+— OneTool Salon Team
 `;
 
     return resend.emails.send({
         from: 'OneTool Salon <support@onetool.it.com>',
         to,
-        subject: `📩 Your appointment request with ${stylistName}`,
+        subject: `📩 Appointment request sent to ${stylistName}`,
         html,
         text
     });
 }
+
