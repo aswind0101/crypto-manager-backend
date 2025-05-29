@@ -375,22 +375,24 @@ router.get("/onboarding", verifyToken, async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT
-     avatar_url IS NOT NULL AS has_avatar,
-     license_url IS NOT NULL AS has_license,
-     id_doc_url IS NOT NULL AS has_id,
-     salon_id IS NOT NULL AS has_salon,
-     payment_connected AS has_payment, -- ✅ Đã thay đổi ở đây
-     isQualified,
-     license_status,
-     id_doc_status,
-     avatar_url,
-     license_url,
-     id_doc_url,
-     salon_id,            
-     specialization,       
-     services
-   FROM freelancers
-   WHERE firebase_uid = $1`,
+    f.avatar_url IS NOT NULL AS has_avatar,
+    f.license_url IS NOT NULL AS has_license,
+    f.id_doc_url IS NOT NULL AS has_id,
+    f.salon_id IS NOT NULL AS has_salon,
+    f.payment_connected AS has_payment,
+    f.isQualified,
+    f.license_status,
+    f.id_doc_status,
+    f.avatar_url,
+    f.license_url,
+    f.id_doc_url,
+    f.salon_id,
+    f.specialization,
+    f.services,
+    e.status AS employee_status   -- 👈 lấy status từ bảng employees
+FROM freelancers f
+LEFT JOIN employees e ON f.firebase_uid = e.firebase_uid
+WHERE f.firebase_uid = $1`,
             [uid]
         );
 
