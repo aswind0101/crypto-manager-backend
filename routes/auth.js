@@ -107,17 +107,23 @@ router.get("/user-role", verifyToken, async (req, res) => {
         // 5️⃣ Nếu là freelancer
         const freelancerCheck = await pool.query("SELECT id FROM freelancers WHERE email = $1", [email]);
         if (freelancerCheck.rows.length > 0) {
-            await pool.query("INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, 'Salon_Freelancers')", [uid, email]);
+            // Nếu chưa có firebase_uid thì update luôn
             await pool.query(
                 "UPDATE freelancers SET firebase_uid = $1 WHERE email = $2 AND (firebase_uid IS NULL OR firebase_uid = '')",
                 [uid, email]
             );
+            // Kiểm tra đã có user chưa
+            const userCheck = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
+            if (userCheck.rows.length === 0) {
+                await pool.query("INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, 'Salon_Freelancers')", [uid, email]);
+            }
             return res.status(200).json({ role: "Salon_Freelancers" });
         }
 
         // 6️⃣ Nếu không thuộc nhóm nào ➜ mặc định là Crypto
         await pool.query("INSERT INTO users (firebase_uid, email, role) VALUES ($1, $2, 'Crypto')", [uid, email]);
         return res.status(200).json({ role: "Crypto" });
+
 
     } catch (err) {
         console.error("❌ Error fetching user role:", err.message);
