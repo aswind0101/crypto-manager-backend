@@ -57,6 +57,10 @@ app.use(express.urlencoded({ extended: true }));
 import freelancerRoutes from './routes/freelancers.js';
 app.use("/api/freelancers", freelancerRoutes);
 
+import freelancerScheduleRoutes from "./routes/freelancer-schedule.js";
+app.use("/api/freelancer-schedule", freelancerScheduleRoutes);
+
+
 //==============================Customer=======================================================================
 import stylistsRoute from "./routes/stylists.js";
 app.use("/api", stylistsRoute);
