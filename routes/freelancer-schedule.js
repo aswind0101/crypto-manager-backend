@@ -33,13 +33,31 @@ router.get("/", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
+// ✅ Public GET schedule by freelancer_id (no auth required)
+router.get("/public", async (req, res) => {
+  const { freelancer_id } = req.query;
+
+  try {
+    const result = await pool.query(
+      `SELECT weekday, start_time, end_time 
+       FROM freelancer_schedule 
+       WHERE freelancer_id = $1 
+       ORDER BY weekday ASC`,
+      [freelancer_id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Public GET error:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 // 🔵 POST: tạo hoặc cập nhật 1 ngày làm việc (theo weekday)
 router.post("/", verifyToken, async (req, res) => {
   const uid = req.user.uid;
   const { weekday, start_time, end_time } = req.body;
 
-  if (![0,1,2,3,4,5,6].includes(weekday)) return res.status(400).json({ error: "Invalid weekday" });
+  if (![0, 1, 2, 3, 4, 5, 6].includes(weekday)) return res.status(400).json({ error: "Invalid weekday" });
 
   try {
     const freelancerRes = await pool.query(
