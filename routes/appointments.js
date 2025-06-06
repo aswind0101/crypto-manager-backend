@@ -159,6 +159,7 @@ router.get("/me", verifyToken, async (req, res) => {
     a.duration_minutes,
     a.note,
     a.status,
+    a.started_at,  -- ➡️ Thêm dòng này!
     f.name AS stylist_name,
     f.avatar_url AS stylist_avatar,
     f.specialization AS stylist_specialization,
