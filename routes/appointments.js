@@ -231,17 +231,27 @@ ORDER BY a.appointment_date ASC
 // ✅ PATCH: Cập nhật trạng thái lịch hẹn
 router.patch("/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body;
+  const { status, started_at } = req.body;
 
-  if (!["pending", "confirmed", "completed", "cancelled"].includes(status)) {
+  // Bổ sung "processing" vào danh sách hợp lệ
+  if (!["pending", "confirmed", "processing", "completed", "cancelled"].includes(status)) {
     return res.status(400).json({ error: "Invalid status value" });
   }
 
   try {
-    const result = await pool.query(
-      `UPDATE appointments SET status = $1 WHERE id = $2 RETURNING *`,
-      [status, id]
-    );
+    // Tạo câu lệnh SQL động: nếu có started_at thì update cả 2 trường, nếu không chỉ update status
+    let result;
+    if (started_at) {
+      result = await pool.query(
+        `UPDATE appointments SET status = $1, started_at = $2 WHERE id = $3 RETURNING *`,
+        [status, started_at, id]
+      );
+    } else {
+      result = await pool.query(
+        `UPDATE appointments SET status = $1 WHERE id = $2 RETURNING *`,
+        [status, id]
+      );
+    }
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Appointment not found" });
@@ -249,8 +259,8 @@ router.patch("/:id", verifyToken, async (req, res) => {
 
     const appt = result.rows[0];
 
-    // ✅ Gửi email nếu là confirmed hoặc cancelled
-    if (["confirmed", "cancelled"].includes(status)) {
+    // ✅ Gửi email nếu là confirmed, cancelled, hoặc processing
+    if (["confirmed", "cancelled", "processing"].includes(status)) {
       try {
         const customerRes = await pool.query(
           `SELECT email FROM users WHERE firebase_uid = $1`,
@@ -296,6 +306,7 @@ router.patch("/:id", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 // ✅ DELETE: Khách huỷ lịch nếu chưa tới giờ
 router.delete("/:id", verifyToken, async (req, res) => {
   const { uid } = req.user;
