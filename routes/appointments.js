@@ -236,7 +236,7 @@ router.get("/freelancer", verifyToken, async (req, res) => {
 // ✅ PATCH: Cập nhật trạng thái lịch hẹn
 router.patch("/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
-  const { status, started_at } = req.body;
+  const { status, started_at, end_at } = req.body;
 
   // Bổ sung "processing" vào danh sách hợp lệ
   if (!["pending", "confirmed", "processing", "completed", "cancelled"].includes(status)) {
