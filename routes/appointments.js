@@ -159,7 +159,8 @@ router.get("/me", verifyToken, async (req, res) => {
     a.duration_minutes,
     a.note,
     a.status,
-    a.started_at,  -- ➡️ Thêm dòng này!
+    a.started_at,  
+    a.ended_at,
     f.name AS stylist_name,
     f.avatar_url AS stylist_avatar,
     f.specialization AS stylist_specialization,
@@ -200,7 +201,8 @@ router.get("/freelancer", verifyToken, async (req, res) => {
     a.appointment_date,
     a.duration_minutes,
     a.status,
-    a.started_at,           -- <-- Thêm dòng này!
+    a.started_at,
+    a.ended_at,     
     a.note,
     a.customer_uid,
     c.name AS customer_name,
@@ -243,18 +245,29 @@ router.patch("/:id", verifyToken, async (req, res) => {
 
   try {
     // Tạo câu lệnh SQL động: nếu có started_at thì update cả 2 trường, nếu không chỉ update status
-    let result;
+    let updateFields = ['status'];
+    let values = [status];
+    let idx = 2;
+
     if (started_at) {
-      result = await pool.query(
-        `UPDATE appointments SET status = $1, started_at = $2 WHERE id = $3 RETURNING *`,
-        [status, started_at, id]
-      );
-    } else {
-      result = await pool.query(
-        `UPDATE appointments SET status = $1 WHERE id = $2 RETURNING *`,
-        [status, id]
-      );
+      updateFields.push('started_at');
+      values.push(started_at);
+      idx++;
     }
+    if (end_at) {
+      updateFields.push('end_at');
+      values.push(end_at);
+      idx++;
+    }
+
+    let setClause = updateFields.map((f, i) => `${f} = $${i + 1}`).join(', ');
+    values.push(id);
+
+    const result = await pool.query(
+      `UPDATE appointments SET ${setClause} WHERE id = $${values.length} RETURNING *`,
+      values
+    );
+
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Appointment not found" });
