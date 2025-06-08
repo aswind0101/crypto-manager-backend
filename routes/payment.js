@@ -56,7 +56,6 @@ router.post("/stripe/save-payment-method", verifyToken, async (req, res) => {
       "UPDATE freelancers SET stripe_payment_method_id = $1, payment_connected = true WHERE firebase_uid = $2",
       [payment_method_id, uid]
     );
-
     res.json({ success: true });
   } catch (err) {
     console.error("❌ Save payment method error:", err.message);
