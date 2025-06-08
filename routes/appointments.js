@@ -1,5 +1,4 @@
 // 📁 backend/routes/appointments.js
-import express from "express";
 import verifyToken from "../middleware/verifyToken.js";
 import { sendBookingEmail } from "../utils/sendBookingEmail.js";
 import { sendAppointmentStatusEmail } from "../utils/sendAppointmentStatusEmail.js";
