@@ -51,8 +51,12 @@ router.post("/stripe/save-payment-method", verifyToken, async (req, res) => {
     await stripe.paymentMethods.attach(payment_method_id, { customer: customerId });
     await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: payment_method_id } });
 
-    // Lưu vào DB để charge sau này
-    await pool.query("UPDATE freelancers SET stripe_payment_method_id = $1 WHERE firebase_uid = $2", [payment_method_id, uid]);
+    // Cập nhật DB: lưu payment_method_id và đánh dấu đã kết nối payment
+    await pool.query(
+      "UPDATE freelancers SET stripe_payment_method_id = $1, payment_connected = true WHERE firebase_uid = $2",
+      [payment_method_id, uid]
+    );
+
     res.json({ success: true });
   } catch (err) {
     console.error("❌ Save payment method error:", err.message);
