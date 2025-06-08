@@ -3,10 +3,12 @@ import express from "express";
 import verifyToken from "../middleware/verifyToken.js";
 import { sendBookingEmail } from "../utils/sendBookingEmail.js";
 import { sendAppointmentStatusEmail } from "../utils/sendAppointmentStatusEmail.js";
+import Stripe from "stripe";
 import dayjs from "dayjs";
 import pkg from "pg";
-const { Pool } = pkg;
 
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const { Pool } = pkg;
 const router = express.Router();
 
 const pool = new Pool({
@@ -244,6 +246,60 @@ router.patch("/:id", verifyToken, async (req, res) => {
   }
 
   try {
+    // Nếu status là "confirmed", thực hiện charge 5% hoa hồng ngay
+    if (status === "confirmed") {
+      // Lấy thông tin appointment
+      const apptRes = await pool.query(
+        `SELECT * FROM appointments WHERE id = $1`,
+        [id]
+      );
+      if (apptRes.rows.length === 0) {
+        return res.status(404).json({ error: "Appointment not found" });
+      }
+      const appt = apptRes.rows[0];
+
+      // Lấy thông tin freelancer để charge 5%
+      const freelancerRes = await pool.query(
+        `SELECT stripe_customer_id, stripe_payment_method_id, name, email FROM freelancers WHERE id = $1`,
+        [appt.stylist_id]
+      );
+      const freelancer = freelancerRes.rows[0];
+      if (!freelancer || !freelancer.stripe_customer_id || !freelancer.stripe_payment_method_id) {
+        return res.status(400).json({ error: "Freelancer chưa thêm payment method hoặc chưa liên kết Stripe!" });
+      }
+
+      // Tính tổng tiền dịch vụ của appointment
+      const serviceRes = await pool.query(
+        `SELECT price FROM salon_services WHERE id = ANY($1)`,
+        [appt.service_ids]
+      );
+      const totalAmount = serviceRes.rows.reduce((sum, s) => sum + (s.price || 0), 0);
+      const feeAmount = Math.round(totalAmount * 0.05 * 100); // 5% (USD → cent)
+
+      if (feeAmount > 0) {
+        try {
+          // Charge 5% commission vào thẻ của stylist
+          await stripe.paymentIntents.create({
+            amount: feeAmount,
+            currency: "usd",
+            customer: freelancer.stripe_customer_id,
+            payment_method: freelancer.stripe_payment_method_id,
+            off_session: true,
+            confirm: true,
+            description: `5% commission for confirming appointment #${appt.id}`,
+            receipt_email: freelancer.email,
+          });
+        } catch (err) {
+          // Nếu charge lỗi, báo về FE và giữ nguyên trạng thái pending
+          console.error("❌ Stripe charge error:", err.message);
+          return res.status(402).json({
+            error: "Could not charge commission fee. Please check your payment method or balance.",
+            stripeError: err.message,
+          });
+        }
+      }
+    }
+
     // Tạo câu lệnh SQL động: nếu có started_at thì update cả 2 trường, nếu không chỉ update status
     let updateFields = ['status'];
     let values = [status];
@@ -267,7 +323,6 @@ router.patch("/:id", verifyToken, async (req, res) => {
       `UPDATE appointments SET ${setClause} WHERE id = $${values.length} RETURNING *`,
       values
     );
-
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Appointment not found" });

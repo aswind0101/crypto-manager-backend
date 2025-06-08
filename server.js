@@ -62,8 +62,9 @@ app.use("/api/freelancer-schedule", freelancerScheduleRoutes);
 
 import publicFreelancerSchedule from "./routes/public/freelancer-schedule.js";
 app.use("/api/public/freelancer-schedule", publicFreelancerSchedule);
-
-
+//=============================Freelancer Payment========================================================
+import paymentRoutes from './routes/payment.js';
+app.use("/api/payment", paymentRoutes);
 
 //==============================Customer=======================================================================
 import stylistsRoute from "./routes/stylists.js";
