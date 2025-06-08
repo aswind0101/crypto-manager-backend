@@ -3,6 +3,8 @@ import express from "express";
 import verifyToken from "../middleware/verifyToken.js";
 import { sendBookingEmail } from "../utils/sendBookingEmail.js";
 import { sendAppointmentStatusEmail } from "../utils/sendAppointmentStatusEmail.js";
+import { sendStylistCommissionChargedEmail } from '../utils/sendStylistCommissionChargedEmail.js';
+
 import Stripe from "stripe";
 import dayjs from "dayjs";
 import pkg from "pg";
@@ -278,7 +280,6 @@ router.patch("/:id", verifyToken, async (req, res) => {
 
       if (feeAmount > 0) {
         try {
-          // Charge 5% commission vào thẻ của stylist
           await stripe.paymentIntents.create({
             amount: feeAmount,
             currency: "usd",
@@ -289,17 +290,48 @@ router.patch("/:id", verifyToken, async (req, res) => {
             description: `5% commission for confirming appointment #${appt.id}`,
             receipt_email: freelancer.email,
           });
+
+          // Sau khi charge thành công, gửi email cho stylist
+          // Lấy các dữ liệu cần thiết cho email
+          const stylistEmail = freelancer.email;
+          const stylistName = freelancer.name;
+          const salonRes = await pool.query(
+            `SELECT name FROM salons WHERE id = $1`,
+            [appt.salon_id]
+          );
+          const salonName = salonRes.rows[0]?.name || "Salon";
+          const servicesRes = await pool.query(
+            `SELECT name, price, duration_minutes FROM salon_services WHERE id = ANY($1)`,
+            [appt.service_ids]
+          );
+          const services = servicesRes.rows;
+          const totalAmount = services.reduce((sum, s) => sum + parseFloat(s.price), 0);
+          const commission = totalAmount * 0.05;
+          const formattedDate = dayjs(appt.appointment_date).format("MMMM D, YYYY – hh:mm A");
+
+          if (stylistEmail) {
+            await sendStylistCommissionChargedEmail({
+              to: stylistEmail,
+              stylistName,
+              appointmentId: appt.id,
+              dateTime: formattedDate,
+              salonName,
+              services,
+              totalAmount,
+              commission,
+            });
+          }
+
         } catch (err) {
           // Nếu charge lỗi, báo về FE và giữ nguyên trạng thái pending
-          console.error("❌ Stripe charge error:", err.message);
           return res.status(402).json({
             error: "Could not charge commission fee. Please check your payment method or balance.",
             stripeError: err.message,
           });
         }
       }
-    }
 
+    }
     // Tạo câu lệnh SQL động: nếu có started_at thì update cả 2 trường, nếu không chỉ update status
     let updateFields = ['status'];
     let values = [status];
