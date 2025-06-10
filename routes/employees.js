@@ -402,16 +402,25 @@ router.delete("/:id", verifyToken, attachUserRole, async (req, res) => {
 
         // 3️⃣ Kiểm tra role trong bảng users
         const checkUser = await pool.query(`SELECT id, role FROM users WHERE firebase_uid = $1`, [firebase_uid]);
-        if (checkUser.rows.length > 0 && checkUser.rows[0].role === "Salon_NhanVien") {
-            await pool.query(`DELETE FROM users WHERE firebase_uid = $1`, [firebase_uid]);
+        if (checkUser.rows.length > 0) {
+            const userId = checkUser.rows[0].id;
+            const role = checkUser.rows[0].role;
+            if (role === "Salon_NhanVien") {
+                // Nếu là nhân viên → XÓA user
+                await pool.query(`DELETE FROM users WHERE firebase_uid = $1`, [firebase_uid]);
+            } else if (role === "Salon_All") {
+                // Nếu là all → cập nhật về Salon_Freelancers
+                await pool.query(`UPDATE users SET role = $1 WHERE id = $2`, ["Salon_Freelancers", userId]);
+            }
         }
 
-        res.json({ message: "Employee (and user if applicable) deleted successfully" });
+        res.json({ message: "Employee (and user if applicable) deleted/updated successfully" });
     } catch (err) {
         console.error("❌ Error deleting employee:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 
 // ✅ Lấy danh sách freelancer cần duyệt (Salon Chủ)
 router.get("/freelancers-pending", verifyToken, attachUserRole, async (req, res) => {
