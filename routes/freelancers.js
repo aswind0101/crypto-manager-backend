@@ -375,28 +375,30 @@ router.get("/onboarding", verifyToken, async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT
-                f.avatar_url IS NOT NULL AS has_avatar,
-                f.license_url IS NOT NULL AS has_license,
-                f.id_doc_url IS NOT NULL AS has_id,
-                f.salon_id IS NOT NULL AS has_salon,
-                f.payment_connected AS has_payment,
-                f.isQualified,
-                f.license_status,
-                f.id_doc_status,
-                f.avatar_url,
-                f.license_url,
-                f.id_doc_url,
-                f.salon_id,
-                f.specialization,
-                f.services,
-                e.status AS employee_status,
-                COALESCE(AVG(r.rating), 0) AS rating,
-                COUNT(r.id) AS review_count
-            FROM freelancers f
-            LEFT JOIN employees e ON f.firebase_uid = e.firebase_uid
-            LEFT JOIN reviews r ON r.freelancer_id = f.id
-            WHERE f.firebase_uid = $1
-            GROUP BY f.id, e.status`,
+    f.avatar_url IS NOT NULL AS has_avatar,
+    f.license_url IS NOT NULL AS has_license,
+    f.id_doc_url IS NOT NULL AS has_id,
+    f.salon_id IS NOT NULL AS has_salon,
+    f.payment_connected AS has_payment,
+    f.isQualified,
+    f.license_status,
+    f.id_doc_status,
+    f.avatar_url,
+    f.license_url,
+    f.id_doc_url,
+    f.salon_id,
+    f.specialization,
+    f.services,
+    f.is_verified,           -- THÊM DÒNG NÀY
+    f.email,                 -- VÀ DÒNG NÀY
+    e.status AS employee_status,
+    COALESCE(AVG(r.rating), 0) AS rating,
+    COUNT(r.id) AS review_count
+FROM freelancers f
+LEFT JOIN employees e ON f.firebase_uid = e.firebase_uid
+LEFT JOIN reviews r ON r.freelancer_id = f.id
+WHERE f.firebase_uid = $1
+GROUP BY f.id, e.status`,
             [uid]
         );
 
