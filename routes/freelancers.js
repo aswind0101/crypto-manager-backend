@@ -358,7 +358,7 @@ router.post("/register", async (req, res) => {
                 temp_salon_address || null,
                 temp_salon_phone || null,
                 verifyToken,
-                JSON.stringify(specialization)
+                specialization // mảng string
             ]
         );
 
