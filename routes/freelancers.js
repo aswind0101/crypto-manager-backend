@@ -290,6 +290,33 @@ router.get("/resend-verify", async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
+// Lấy tất cả freelancers thuộc salon do chủ salon quản lý
+router.get("/by-salon", verifyToken, async (req, res) => {
+    const { uid } = req.user;
+    try {
+        // Lấy salon_id mà chủ salon đang quản lý
+        const salonRes = await pool.query(
+            `SELECT id FROM salons WHERE owner_user_id = $1`, [uid]
+        );
+        if (!salonRes.rows.length) return res.status(404).json({ error: "Salon not found" });
+        const salon_id = salonRes.rows[0].id;
+
+        // Lấy tất cả freelancers có salon_id này và status='active'
+        const result = await pool.query(`
+      SELECT id, name, avatar_url, gender, specialization, email
+      FROM freelancers
+      WHERE salon_id = $1 AND status = 'active'
+      ORDER BY id ASC
+    `, [salon_id]);
+
+        res.json(result.rows);
+    } catch (err) {
+        console.error("❌ Error fetching salon freelancers:", err.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
 // POST: /api/freelancers/register
 router.post("/register", async (req, res) => {
     const {

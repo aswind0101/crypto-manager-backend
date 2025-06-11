@@ -237,6 +237,98 @@ router.get("/freelancer", verifyToken, async (req, res) => {
   }
 });
 
+// LẤY TẤT CẢ LỊCH HẸN của 1 salon trong 1 ngày
+router.get("/salon", verifyToken, async (req, res) => {
+  const { uid } = req.user;
+  const { date } = req.query;
+  if (!date) return res.status(400).json({ error: "Missing date" });
+
+  try {
+    // Lấy salon_id mà chủ salon đang quản lý
+    const salonRes = await pool.query(
+      `SELECT id FROM salons WHERE owner_user_id = $1`, [uid]
+    );
+    if (!salonRes.rows.length) return res.status(404).json({ error: "Salon not found" });
+    const salon_id = salonRes.rows[0].id;
+
+    // Lấy appointments của salon ngày đó, join với FREELANCERS
+    const start = `${date} 00:00:00`;
+    const end = `${date} 23:59:59`;
+
+    const result = await pool.query(`
+      SELECT 
+        a.*,
+        f.id as stylist_id,
+        f.name as stylist_name,
+        f.avatar_url as stylist_avatar,
+        c.name as customer_name,
+        ARRAY(
+          SELECT json_build_object(
+            'id', ss.id,
+            'name', ss.name,
+            'price', ss.price,
+            'duration', ss.duration_minutes
+          )
+          FROM salon_services ss
+          WHERE ss.id = ANY(a.service_ids)
+        ) AS services
+      FROM appointments a
+      JOIN freelancers f ON a.stylist_id = f.id
+      LEFT JOIN customers c ON a.customer_uid = c.firebase_uid
+      WHERE a.salon_id = $1
+        AND a.appointment_date BETWEEN $2 AND $3
+      ORDER BY a.appointment_date ASC
+    `, [salon_id, start, end]);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error fetching salon appointments:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+
+// BIỂU ĐỒ DOANH THU: trả về [{date, revenue}]
+router.get("/salon/revenue", verifyToken, async (req, res) => {
+  const { uid } = req.user;
+  const { from, to } = req.query;
+  if (!from || !to) return res.status(400).json({ error: "Missing from/to" });
+
+  try {
+    // Lấy salon_id mà chủ salon đang quản lý
+    const salonRes = await pool.query(
+      `SELECT id FROM salons WHERE owner_user_id = $1`, [uid]
+    );
+    if (!salonRes.rows.length) return res.status(404).json({ error: "Salon not found" });
+    const salon_id = salonRes.rows[0].id;
+
+    // Lấy doanh thu từng ngày (tính trên status 'completed')
+    const result = await pool.query(`
+      SELECT 
+        DATE(appointment_date) as date,
+        SUM(
+          (
+            SELECT COALESCE(SUM(ss.price),0)
+            FROM salon_services ss
+            WHERE ss.id = ANY(a.service_ids)
+          )
+        ) as revenue
+      FROM appointments a
+      WHERE a.salon_id = $1 
+        AND a.status = 'completed'
+        AND a.appointment_date BETWEEN $2 AND $3
+      GROUP BY DATE(appointment_date)
+      ORDER BY date ASC
+    `, [salon_id, from, to]);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error fetching salon revenue:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+
 // ✅ PATCH: Cập nhật trạng thái lịch hẹn
 router.patch("/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
