@@ -59,9 +59,10 @@ router.post("/", verifyToken, async (req, res) => {
     appointment_date,
     duration_minutes,
     note,
+    phone,
   } = req.body;
 
-  if (!stylist_id || !salon_id || !service_ids || !appointment_date) {
+  if (!stylist_id || !salon_id || !service_ids || !appointment_date || !phone || phone.length < 8) {
     return res.status(400).json({ error: "Missing required fields." });
   }
 
@@ -90,13 +91,13 @@ router.post("/", verifyToken, async (req, res) => {
     const result = await pool.query(
       `INSERT INTO appointments (
          customer_uid, stylist_id, salon_id, service_ids,
-         appointment_date, duration_minutes, note
+         appointment_date, duration_minutes, note, phone
        ) VALUES (
          $1, $2, $3, $4,
          TO_TIMESTAMP($5, 'YYYY-MM-DD HH24:MI:SS'),
-         $6, $7
+         $6, $7, $8
        ) RETURNING *`,
-      [uid, stylist_id, salon_id, service_ids, appointment_date, duration_minutes, note || null]
+      [uid, stylist_id, salon_id, service_ids, appointment_date, duration_minutes, note || null, phone]
     );
 
     const appointment = result.rows[0];
