@@ -169,7 +169,9 @@ router.get("/me", verifyToken, async (req, res) => {
     f.name AS stylist_name,
     f.avatar_url AS stylist_avatar,
     f.specialization AS stylist_specialization,
+    f.phone AS stylist_phone,
     s.name AS salon_name,
+    s.address AS salon_address,
     ARRAY(
       SELECT json_build_object('id', ss.id, 'name', ss.name, 'price', ss.price, 'duration', ss.duration_minutes)
       FROM salon_services ss
