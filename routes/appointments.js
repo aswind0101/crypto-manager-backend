@@ -62,7 +62,7 @@ router.post("/", verifyToken, async (req, res) => {
     phone,
   } = req.body;
 
-  if (!stylist_id || !salon_id || !service_ids || !appointment_date || !phone || phone.length < 8) {
+  if (!stylist_id || !salon_id || !service_ids || !appointment_date || !phone) {
     return res.status(400).json({ error: "Missing required fields." });
   }
 
