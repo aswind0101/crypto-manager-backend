@@ -266,6 +266,7 @@ router.get("/salon", verifyToken, async (req, res) => {
         f.name as stylist_name,
         f.avatar_url as stylist_avatar,
         c.name as customer_name,
+        a.phone AS customer_phone,
         ARRAY(
           SELECT json_build_object(
             'id', ss.id,
