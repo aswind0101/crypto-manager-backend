@@ -22,7 +22,10 @@ router.post("/", verifyToken, async (req, res) => {
         total_duration,
         actual_start_at,
         actual_end_at,
-        notes
+        notes,
+        tip = 0,
+        amount_paid = 0,
+        change = 0
     } = req.body;
 
     if (!appointment_id || !services || !total_amount || !actual_end_at) {
@@ -32,12 +35,13 @@ router.post("/", verifyToken, async (req, res) => {
     try {
         const result = await pool.query(
             `INSERT INTO appointment_invoices 
-            (appointment_id, customer_name, customer_phone, stylist_id, stylist_name, salon_id, services, total_amount, total_duration, actual_start_at, actual_end_at, notes)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            (appointment_id, customer_name, customer_phone, stylist_id, stylist_name, salon_id, services, total_amount, total_duration, actual_start_at, actual_end_at, notes, tip, amount_paid, change)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
             RETURNING *`,
             [
                 appointment_id, customer_name, customer_phone, stylist_id, stylist_name, salon_id,
-                JSON.stringify(services), total_amount, total_duration, actual_start_at, actual_end_at, notes
+                JSON.stringify(services), total_amount, total_duration, actual_start_at, actual_end_at, notes,
+                tip, amount_paid, change
             ]
         );
         // Update appointment status
@@ -51,5 +55,6 @@ router.post("/", verifyToken, async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
+
 
 export default router;
