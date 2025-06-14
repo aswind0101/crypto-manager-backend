@@ -212,6 +212,7 @@ router.get("/freelancer", verifyToken, async (req, res) => {
     a.end_at,     
     a.note,
     a.customer_uid,
+    a.phone AS customer_phone,
     c.name AS customer_name,
     s.name AS salon_name,
     ARRAY(
