@@ -540,5 +540,81 @@ router.delete("/:id", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+router.post("/messages", verifyToken, async (req, res) => {
+  const { appointment_id, message } = req.body;
+  const { uid } = req.user;
+
+  if (!appointment_id || !message) {
+    return res.status(400).json({ error: "Missing appointment_id or message" });
+  }
+
+  try {
+    const freelancerRes = await pool.query(
+      `SELECT name, phone FROM freelancers WHERE firebase_uid = $1`,
+      [uid]
+    );
+    if (freelancerRes.rows.length === 0) {
+      return res.status(404).json({ error: "Freelancer not found" });
+    }
+
+    const { name, phone } = freelancerRes.rows[0];
+
+    await pool.query(
+      `INSERT INTO appointment_messages (
+        appointment_id, sender_role, sender_name, sender_phone, message
+      ) VALUES ($1, 'freelancer', $2, $3, $4)`,
+      [appointment_id, name, phone, message]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Error sending message:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+router.get("/messages", verifyToken, async (req, res) => {
+  const { uid } = req.user;
+
+  try {
+    const stylistRes = await pool.query(
+      `SELECT id FROM freelancers WHERE firebase_uid = $1`,
+      [uid]
+    );
+    if (stylistRes.rows.length === 0) return res.json([]);
+
+    const stylistId = stylistRes.rows[0].id;
+
+    const appointmentsRes = await pool.query(
+      `SELECT id, customer_uid, appointment_date FROM appointments WHERE stylist_id = $1`,
+      [stylistId]
+    );
+
+    const appointments = appointmentsRes.rows;
+
+    if (appointments.length === 0) return res.json([]);
+
+    const appointmentIds = appointments.map(a => a.id);
+
+    const messagesRes = await pool.query(
+      `SELECT * FROM appointment_messages WHERE appointment_id = ANY($1) ORDER BY created_at DESC`,
+      [appointmentIds]
+    );
+
+    // Gắn thêm thông tin lịch hẹn
+    const enriched = messagesRes.rows.map(m => {
+      const appt = appointments.find(a => a.id === m.appointment_id);
+      return {
+        ...m,
+        appointment_date: appt?.appointment_date,
+        customer_uid: appt?.customer_uid,
+      };
+    });
+
+    res.json(enriched);
+  } catch (err) {
+    console.error("❌ Error fetching messages:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 export default router;
