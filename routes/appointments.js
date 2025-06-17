@@ -561,29 +561,47 @@ router.post("/messages", verifyToken, async (req, res) => {
   }
 
   try {
+    // Ưu tiên freelancer
     const freelancerRes = await pool.query(
       `SELECT name, phone FROM freelancers WHERE firebase_uid = $1`,
       [uid]
     );
-    if (freelancerRes.rows.length === 0) {
-      return res.status(404).json({ error: "Freelancer not found" });
+
+    if (freelancerRes.rows.length > 0) {
+      const { name, phone } = freelancerRes.rows[0];
+      await pool.query(
+        `INSERT INTO appointment_messages (
+          appointment_id, sender_role, sender_name, sender_phone, message
+        ) VALUES ($1, 'freelancer', $2, $3, $4)`,
+        [appointment_id, name, phone, message]
+      );
+      return res.json({ success: true });
     }
 
-    const { name, phone } = freelancerRes.rows[0];
-
-    await pool.query(
-      `INSERT INTO appointment_messages (
-        appointment_id, sender_role, sender_name, sender_phone, message
-      ) VALUES ($1, 'freelancer', $2, $3, $4)`,
-      [appointment_id, name, phone, message]
+    // Nếu không phải freelancer → thử kiểm tra customer
+    const customerRes = await pool.query(
+      `SELECT name, phone FROM customers WHERE firebase_uid = $1`,
+      [uid]
     );
 
-    res.json({ success: true });
+    if (customerRes.rows.length > 0) {
+      const { name, phone } = customerRes.rows[0];
+      await pool.query(
+        `INSERT INTO appointment_messages (
+          appointment_id, sender_role, sender_name, sender_phone, message
+        ) VALUES ($1, 'customer', $2, $3, $4)`,
+        [appointment_id, name, phone, message]
+      );
+      return res.json({ success: true });
+    }
+
+    return res.status(403).json({ error: "Unauthorized user" });
   } catch (err) {
     console.error("❌ Error sending message:", err.message);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 router.get("/messages", verifyToken, async (req, res) => {
   const { uid } = req.user;
 
