@@ -589,7 +589,7 @@ router.post("/messages", verifyToken, async (req, res) => {
       await pool.query(
         `INSERT INTO appointment_messages (
           appointment_id, sender_role, sender_name, sender_phone, message, created_at
-        ) VALUES ($1, 'customer', $2, $3, $4, now())`,
+        ) VALUES ($1, 'customer', $2, $3, $4, TO_TIMESTAMP($5, 'YYYY-MM-DD HH24:MI:SS'))`,
         [appointment_id, name, phone, message]
       );
       return res.json({ success: true });
