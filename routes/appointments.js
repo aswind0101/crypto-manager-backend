@@ -571,8 +571,8 @@ router.post("/messages", verifyToken, async (req, res) => {
       const { name, phone } = freelancerRes.rows[0];
       await pool.query(
         `INSERT INTO appointment_messages (
-          appointment_id, sender_role, sender_name, sender_phone, message
-        ) VALUES ($1, 'freelancer', $2, $3, $4)`,
+          appointment_id, sender_role, sender_name, sender_phone, message, created_at
+        ) VALUES ($1, 'freelancer', $2, $3, $4, now())`,
         [appointment_id, name, phone, message]
       );
       return res.json({ success: true });
@@ -588,8 +588,8 @@ router.post("/messages", verifyToken, async (req, res) => {
       const { name, phone } = customerRes.rows[0];
       await pool.query(
         `INSERT INTO appointment_messages (
-          appointment_id, sender_role, sender_name, sender_phone, message
-        ) VALUES ($1, 'customer', $2, $3, $4)`,
+          appointment_id, sender_role, sender_name, sender_phone, message, created_at
+        ) VALUES ($1, 'customer', $2, $3, $4, now())`,
         [appointment_id, name, phone, message]
       );
       return res.json({ success: true });
@@ -601,6 +601,7 @@ router.post("/messages", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 
 router.get("/messages", verifyToken, async (req, res) => {
   const { uid } = req.user;
