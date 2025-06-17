@@ -158,31 +158,42 @@ router.get("/me", verifyToken, async (req, res) => {
   const { uid } = req.user;
   try {
     const result = await pool.query(`
-  SELECT 
-    a.id,
-    a.appointment_date,
-    a.duration_minutes,
-    a.note,
-    a.status,
-    a.started_at,  
-    a.end_at,
-    f.name AS stylist_name,
-    f.avatar_url AS stylist_avatar,
-    f.specialization AS stylist_specialization,
-    f.phone AS stylist_phone,
-    s.name AS salon_name,
-    s.address AS salon_address,
-    ARRAY(
-      SELECT json_build_object('id', ss.id, 'name', ss.name, 'price', ss.price, 'duration', ss.duration_minutes)
-      FROM salon_services ss
-      WHERE ss.id = ANY(a.service_ids)
-    ) AS services
-  FROM appointments a
-  JOIN freelancers f ON a.stylist_id = f.id
-  JOIN salons s ON a.salon_id = s.id
-  WHERE a.customer_uid = $1
-  ORDER BY a.appointment_date DESC
-`, [uid]);
+      SELECT 
+        a.id,
+        a.appointment_date,
+        a.duration_minutes,
+        a.note,
+        a.status,
+        a.started_at,  
+        a.end_at,
+        f.name AS stylist_name,
+        f.avatar_url AS stylist_avatar,
+        f.specialization AS stylist_specialization,
+        f.phone AS stylist_phone,
+        s.name AS salon_name,
+        s.address AS salon_address,
+        ARRAY(
+          SELECT json_build_object('id', ss.id, 'name', ss.name, 'price', ss.price, 'duration', ss.duration_minutes)
+          FROM salon_services ss
+          WHERE ss.id = ANY(a.service_ids)
+        ) AS services,
+        ARRAY(
+          SELECT json_build_object(
+            'id', m.id,
+            'message', m.message,
+            'sender_role', m.sender_role,
+            'created_at', m.created_at
+          )
+          FROM appointment_messages m
+          WHERE m.appointment_id = a.id
+          ORDER BY m.created_at ASC
+        ) AS messages
+      FROM appointments a
+      JOIN freelancers f ON a.stylist_id = f.id
+      JOIN salons s ON a.salon_id = s.id
+      WHERE a.customer_uid = $1
+      ORDER BY a.appointment_date DESC
+    `, [uid]);
 
     res.json(result.rows);
   } catch (err) {
@@ -190,6 +201,7 @@ router.get("/me", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 
 // ✅ GET: Stylist lấy lịch hẹn của mình
 router.get("/freelancer", verifyToken, async (req, res) => {
