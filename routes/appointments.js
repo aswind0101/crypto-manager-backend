@@ -718,5 +718,21 @@ router.get("/messages/unread-count", verifyToken, async (req, res) => {
   }
 });
 
+// ✅ Đánh dấu tất cả tin nhắn stylist (chưa đọc) của 1 appointment là đã đọc
+router.patch("/appointments/:id/read-all", verifyToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query(
+      `UPDATE appointment_messages
+       SET is_read = TRUE
+       WHERE appointment_id = $1 AND sender_role = 'freelancer' AND is_read = FALSE`,
+      [id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Error marking messages as read:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 export default router;
