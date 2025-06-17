@@ -553,7 +553,7 @@ router.delete("/:id", verifyToken, async (req, res) => {
   }
 });
 router.post("/messages", verifyToken, async (req, res) => {
-  const { appointment_id, message } = req.body;
+  const { appointment_id, message, created_at } = req.body;
   const { uid } = req.user;
 
   if (!appointment_id || !message) {
