@@ -647,5 +647,61 @@ router.get("/messages", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+router.patch("/messages/:id/read", verifyToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query(
+      `UPDATE appointment_messages SET is_read = TRUE WHERE id = $1`,
+      [id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Error marking message as read:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/:id/messages", verifyToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT * FROM appointment_messages WHERE appointment_id = $1 ORDER BY created_at ASC`,
+      [id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error fetching messages:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/messages/unread-count", verifyToken, async (req, res) => {
+  const { uid } = req.user;
+  try {
+    const freelancerRes = await pool.query(
+      `SELECT id FROM freelancers WHERE firebase_uid = $1`, [uid]
+    );
+    const freelancerId = freelancerRes.rows[0]?.id;
+    if (!freelancerId) return res.json({ count: 0 });
+
+    const appointmentIdsRes = await pool.query(
+      `SELECT id FROM appointments WHERE stylist_id = $1`, [freelancerId]
+    );
+    const ids = appointmentIdsRes.rows.map(r => r.id);
+    if (ids.length === 0) return res.json({ count: 0 });
+
+    const unreadRes = await pool.query(
+      `SELECT COUNT(*) FROM appointment_messages
+       WHERE appointment_id = ANY($1)
+       AND sender_role = 'customer' AND is_read = FALSE`,
+      [ids]
+    );
+
+    res.json({ count: parseInt(unreadRes.rows[0].count, 10) });
+  } catch (err) {
+    console.error("❌ Error counting unread messages:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 export default router;
