@@ -616,7 +616,9 @@ router.get("/messages", verifyToken, async (req, res) => {
     const stylistId = stylistRes.rows[0].id;
 
     const appointmentsRes = await pool.query(
-      `SELECT id, customer_uid, appointment_date FROM appointments WHERE stylist_id = $1`,
+      `SELECT id, customer_uid, appointment_date 
+   FROM appointments 
+   WHERE stylist_id = $1 AND status = 'confirmed'`,
       [stylistId]
     );
 
