@@ -719,7 +719,7 @@ router.get("/messages/unread-count", verifyToken, async (req, res) => {
 });
 
 // ✅ Đánh dấu tất cả tin nhắn stylist (chưa đọc) của 1 appointment là đã đọc
-router.patch("/appointments/:id/read-all", verifyToken, async (req, res) => {
+router.patch("/:id/read-all", verifyToken, async (req, res) => {
   const { id } = req.params;
   try {
     const result = await pool.query(
