@@ -722,17 +722,20 @@ router.get("/messages/unread-count", verifyToken, async (req, res) => {
 router.patch("/appointments/:id/read-all", verifyToken, async (req, res) => {
   const { id } = req.params;
   try {
-    await pool.query(
+    const result = await pool.query(
       `UPDATE appointment_messages
        SET is_read = TRUE
-       WHERE appointment_id = $1 AND sender_role = 'freelancer' AND is_read = FALSE`,
+       WHERE appointment_id = $1 AND sender_role = 'freelancer' AND is_read = FALSE
+       RETURNING id`,
       [id]
     );
-    res.json({ success: true });
+    console.log("🔄 Messages marked as read:", result.rows);
+    res.json({ success: true, updated: result.rows.length });
   } catch (err) {
     console.error("❌ Error marking messages as read:", err.message);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 
 export default router;
