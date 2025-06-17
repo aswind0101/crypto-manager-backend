@@ -607,6 +607,7 @@ router.get("/messages", verifyToken, async (req, res) => {
   const { uid } = req.user;
 
   try {
+    // 1. Lấy freelancer ID
     const stylistRes = await pool.query(
       `SELECT id FROM freelancers WHERE firebase_uid = $1`,
       [uid]
@@ -615,25 +616,29 @@ router.get("/messages", verifyToken, async (req, res) => {
 
     const stylistId = stylistRes.rows[0].id;
 
+    // 2. Lấy các cuộc hẹn 'confirmed'
     const appointmentsRes = await pool.query(
       `SELECT id, customer_uid, appointment_date 
-   FROM appointments 
-   WHERE stylist_id = $1 AND status = 'confirmed'`,
+       FROM appointments 
+       WHERE stylist_id = $1 AND status = 'confirmed'`,
       [stylistId]
     );
 
     const appointments = appointmentsRes.rows;
-
     if (appointments.length === 0) return res.json([]);
 
     const appointmentIds = appointments.map(a => a.id);
 
+    // 3. Lấy tất cả message của customer trong các appointment đó
     const messagesRes = await pool.query(
-      `SELECT * FROM appointment_messages WHERE appointment_id = ANY($1) ORDER BY created_at DESC`,
+      `SELECT * FROM appointment_messages 
+       WHERE appointment_id = ANY($1) 
+       AND sender_role = 'customer'
+       ORDER BY created_at DESC`,
       [appointmentIds]
     );
 
-    // Gắn thêm thông tin lịch hẹn
+    // 4. Gắn thêm thông tin lịch hẹn
     const enriched = messagesRes.rows.map(m => {
       const appt = appointments.find(a => a.id === m.appointment_id);
       return {
@@ -649,6 +654,7 @@ router.get("/messages", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 router.patch("/messages/:id/read", verifyToken, async (req, res) => {
   const { id } = req.params;
   try {
@@ -667,7 +673,10 @@ router.get("/:id/messages", verifyToken, async (req, res) => {
   const { id } = req.params;
   try {
     const result = await pool.query(
-      `SELECT * FROM appointment_messages WHERE appointment_id = $1 ORDER BY created_at ASC`,
+      `SELECT * FROM appointment_messages 
+       WHERE appointment_id = $1 
+       AND sender_role = 'customer'
+       ORDER BY created_at ASC`,
       [id]
     );
     res.json(result.rows);
@@ -687,7 +696,8 @@ router.get("/messages/unread-count", verifyToken, async (req, res) => {
     if (!freelancerId) return res.json({ count: 0 });
 
     const appointmentIdsRes = await pool.query(
-      `SELECT id FROM appointments WHERE stylist_id = $1`, [freelancerId]
+      `SELECT id FROM appointments WHERE stylist_id = $1 AND status = 'confirmed'`,
+      [freelancerId]
     );
     const ids = appointmentIdsRes.rows.map(r => r.id);
     if (ids.length === 0) return res.json({ count: 0 });
@@ -695,7 +705,8 @@ router.get("/messages/unread-count", verifyToken, async (req, res) => {
     const unreadRes = await pool.query(
       `SELECT COUNT(*) FROM appointment_messages
        WHERE appointment_id = ANY($1)
-       AND sender_role = 'customer' AND is_read = FALSE`,
+       AND sender_role = 'customer'
+       AND is_read = FALSE`,
       [ids]
     );
 
@@ -705,5 +716,6 @@ router.get("/messages/unread-count", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 
 export default router;
