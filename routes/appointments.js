@@ -182,7 +182,8 @@ router.get("/me", verifyToken, async (req, res) => {
             'id', m.id,
             'message', m.message,
             'sender_role', m.sender_role,
-            'created_at', m.created_at
+            'created_at', m.created_at,
+            'is_read', m.is_read
           )
           FROM appointment_messages m
           WHERE m.appointment_id = a.id
