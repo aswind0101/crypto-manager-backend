@@ -573,7 +573,7 @@ router.post("/messages", verifyToken, async (req, res) => {
         `INSERT INTO appointment_messages (
           appointment_id, sender_role, sender_name, sender_phone, message, created_at
         ) VALUES ($1, 'freelancer', $2, $3, $4, TO_TIMESTAMP($5, 'YYYY-MM-DD HH24:MI:SS'))`,
-        [appointment_id, name, phone, message]
+        [appointment_id, name, phone, message, created_at]
       );
       return res.json({ success: true });
     }
@@ -590,7 +590,7 @@ router.post("/messages", verifyToken, async (req, res) => {
         `INSERT INTO appointment_messages (
           appointment_id, sender_role, sender_name, sender_phone, message, created_at
         ) VALUES ($1, 'customer', $2, $3, $4, TO_TIMESTAMP($5, 'YYYY-MM-DD HH24:MI:SS'))`,
-        [appointment_id, name, phone, message]
+        [appointment_id, name, phone, message, created_at]
       );
       return res.json({ success: true });
     }
