@@ -721,14 +721,21 @@ router.get("/messages/unread-count", verifyToken, async (req, res) => {
 // ✅ Đánh dấu tất cả tin nhắn stylist (chưa đọc) của 1 appointment là đã đọc
 router.patch("/:id/read-all", verifyToken, async (req, res) => {
   const { id } = req.params;
+  const { sender_role } = req.body;
+
+  if (!["freelancer", "customer"].includes(sender_role)) {
+    return res.status(400).json({ error: "Invalid sender_role" });
+  }
+
   try {
     const result = await pool.query(
       `UPDATE appointment_messages
        SET is_read = TRUE
-       WHERE appointment_id = $1 AND sender_role = 'freelancer' AND is_read = FALSE
+       WHERE appointment_id = $1 AND sender_role = $2 AND is_read = FALSE
        RETURNING id`,
-      [id]
+      [id, sender_role]
     );
+
     console.log("🔄 Messages marked as read:", result.rows);
     res.json({ success: true, updated: result.rows.length });
   } catch (err) {
@@ -736,6 +743,7 @@ router.patch("/:id/read-all", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 
 // 📌 API mới: Lấy toàn bộ tin nhắn (cả customer và stylist) theo appointment_id
 router.get("/:id/messages/all", verifyToken, async (req, res) => {
