@@ -224,6 +224,7 @@ router.get("/freelancer", verifyToken, async (req, res) => {
     a.started_at,
     a.end_at,     
     a.note,
+    a.cancel_reason,
     a.customer_uid,
     a.stylist_id,
     a.phone AS customer_phone,
