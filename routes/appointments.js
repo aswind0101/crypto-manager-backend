@@ -353,7 +353,7 @@ router.get("/salon/revenue", verifyToken, async (req, res) => {
 // ✅ PATCH: Cập nhật trạng thái lịch hẹn
 router.patch("/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
-  const { status, started_at, end_at } = req.body;
+  const { status, started_at, end_at, cancel_reason } = req.body;
 
   // Bổ sung "processing" vào danh sách hợp lệ
   if (!["pending", "confirmed", "processing", "completed", "cancelled"].includes(status)) {
@@ -460,7 +460,11 @@ router.patch("/:id", verifyToken, async (req, res) => {
       values.push(end_at);
       idx++;
     }
-
+    if (status === "cancelled" && cancel_reason) {
+      updateFields.push('cancel_reason'); // ✅ CHO PHÉP UPDATE lý do hủy
+      values.push(cancel_reason);
+      idx++;
+    }
     let setClause = updateFields.map((f, i) => `${f} = $${i + 1}`).join(', ');
     values.push(id);
 
