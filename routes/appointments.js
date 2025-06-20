@@ -526,6 +526,7 @@ router.patch("/:id", verifyToken, async (req, res) => {
 router.delete("/:id", verifyToken, async (req, res) => {
   const { uid } = req.user;
   const { id } = req.params;
+  const { cancel_reason } = req.body;
 
   try {
     const check = await pool.query(`
@@ -540,12 +541,17 @@ router.delete("/:id", verifyToken, async (req, res) => {
 
     const { status } = check.rows[0];
 
-    if (status !== "pending") {
-      return res.status(400).json({ error: "Only pending appointments can be cancelled." });
+    // ❌ Chỉ không cho huỷ nếu đã completed hoặc đã huỷ rồi
+    if (["completed", "cancelled"].includes(status)) {
+      return res.status(400).json({ error: "Cannot cancel this appointment." });
     }
 
-    // ✅ KHÔNG kiểm tra thời gian nữa — frontend lo phần này rồi
-    await pool.query("DELETE FROM appointments WHERE id = $1", [id]);
+    // ✅ Update thay vì xoá
+    await pool.query(`
+      UPDATE appointments
+      SET status = 'cancelled', cancel_reason = $1
+      WHERE id = $2
+    `, [cancel_reason || null, id]);
 
     res.json({ message: "✅ Appointment cancelled." });
   } catch (err) {
@@ -553,6 +559,7 @@ router.delete("/:id", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 router.post("/messages", verifyToken, async (req, res) => {
   const { appointment_id, message, created_at } = req.body;
   const { uid } = req.user;
