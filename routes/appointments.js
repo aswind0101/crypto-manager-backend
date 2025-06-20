@@ -164,6 +164,7 @@ router.get("/me", verifyToken, async (req, res) => {
         a.duration_minutes,
         a.note,
         a.status,
+        a.cancel_reason,
         a.started_at,  
         a.end_at,
         f.name AS stylist_name,
