@@ -612,16 +612,31 @@ router.patch("/select-salon", verifyToken, async (req, res) => {
 router.get("/check", verifyToken, async (req, res) => {
     const { uid } = req.user;
     console.log("🔥 [API CHECK] UID nhận từ token:", uid);
+
     try {
-        const check = await pool.query("SELECT id, email, firebase_uid FROM freelancers WHERE firebase_uid = $1", [uid]);
-        console.log("🔥 [API CHECK] Kết quả query:", check.rows);
-        return res.json({ exists: check.rows.length > 0 });
+        const result = await pool.query(
+            "SELECT id, email, firebase_uid, is_verified FROM freelancers WHERE firebase_uid = $1",
+            [uid]
+        );
+
+        console.log("🔥 [API CHECK] Kết quả query:", result.rows);
+
+        if (result.rows.length === 0) {
+            return res.status(200).json({ exists: false, is_verified: false });
+        }
+
+        const freelancer = result.rows[0];
+        return res.json({
+            exists: true,
+            email: freelancer.email,
+            firebase_uid: freelancer.firebase_uid,
+            is_verified: freelancer.is_verified ?? false
+        });
     } catch (err) {
         console.error("❌ Error checking freelancer by uid:", err.message);
         return res.status(500).json({ error: "Internal Server Error" });
     }
 });
-
 
 // PATCH: Đánh dấu freelancer đã thêm phương thức thanh toán (giả lập)
 router.patch("/mark-payment-added", verifyToken, async (req, res) => {
