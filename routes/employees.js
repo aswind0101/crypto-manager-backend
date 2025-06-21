@@ -390,39 +390,41 @@ router.delete("/:id", verifyToken, attachUserRole, async (req, res) => {
     }
 
     try {
-        // 1️⃣ Lấy firebase_uid và email
+        // 1️⃣ Lấy firebase_uid và email của employee
         const check = await pool.query(`SELECT firebase_uid, email FROM employees WHERE id = $1`, [id]);
         if (check.rows.length === 0) {
             return res.status(404).json({ error: "Employee not found" });
         }
         const { firebase_uid, email } = check.rows[0];
 
-        // 2️⃣ Xoá messages (nếu cần)
-        await pool.query(`
-            DELETE FROM appointment_messages
-            WHERE appointment_id IN (
-                SELECT id FROM appointments WHERE stylist_id IN (
-                    SELECT id FROM freelancers WHERE firebase_uid = $1
-                )
-            )
-        `, [firebase_uid]);
-
-        // 3️⃣ Xoá employee
+        // 2️⃣ Xoá employee
         await pool.query(`DELETE FROM employees WHERE id = $1`, [id]);
 
-        // 4️⃣ Xoá user nếu là nhân viên
+        // 3️⃣ Cập nhật các trường salon ở freelancers về NULL
+        await pool.query(`
+            UPDATE freelancers
+            SET salon_id = NULL,
+                temp_salon_name = NULL,
+                temp_salon_address = NULL,
+                temp_salon_phone = NULL
+            WHERE firebase_uid = $1
+        `, [firebase_uid]);
+
+        // 4️⃣ Kiểm tra role trong bảng users
         const checkUser = await pool.query(`SELECT id, role FROM users WHERE firebase_uid = $1`, [firebase_uid]);
         if (checkUser.rows.length > 0) {
             const userId = checkUser.rows[0].id;
             const role = checkUser.rows[0].role;
             if (role === "Salon_NhanVien") {
+                // Nếu là nhân viên → xoá user
                 await pool.query(`DELETE FROM users WHERE firebase_uid = $1`, [firebase_uid]);
             } else if (role === "Salon_All") {
+                // Nếu là all → cập nhật về Salon_Freelancers
                 await pool.query(`UPDATE users SET role = $1 WHERE id = $2`, ["Salon_Freelancers", userId]);
             }
         }
 
-        res.json({ message: "✅ Employee and related data deleted successfully" });
+        res.json({ message: "✅ Employee and related freelancer updated successfully" });
     } catch (err) {
         console.error("❌ Error deleting employee:", err.message);
         res.status(500).json({ error: "Internal Server Error" });
