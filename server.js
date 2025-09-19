@@ -485,6 +485,32 @@ app.patch("/api/coin-targets/:symbol", verifyToken, async (req, res) => {
     }
 });
 
+//============================Coins Analyzer Cron==============================================================
+
+
+if (process.env.ENABLE_INTERNAL_CRON === "true") {
+  // Chạy “warmup” ngay khi server start để có dữ liệu giá sớm
+  (async () => {
+    try { await runPriceWorker(); } catch(e){ console.error(e); }
+    try { await runOnchainWorker(); } catch(e){ console.error(e); } // không có API key sẽ skip
+    try { await runNewsWorker(); } catch(e){ console.error(e); }    // không có API key sẽ skip
+  })();
+
+  // Lịch định kỳ
+  cron.schedule("*/5 * * * *", async () => {
+    console.log("CRON: fetching price & on-chain ...");
+    try { await runPriceWorker(); } catch(e){ console.error(e); }
+    try { await runOnchainWorker(); } catch(e){ console.error(e); }
+  });
+
+  cron.schedule("*/15 * * * *", async () => {
+    console.log("CRON: fetching news ...");
+    try { await runNewsWorker(); } catch(e){ console.error(e); }
+  });
+
+  console.log("✅ Internal cron enabled");
+}
+
 
 // Health check
 app.get("/", (req, res) => {
@@ -494,21 +520,3 @@ app.get("/", (req, res) => {
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server is running on http://localhost:${PORT}`);
 });
-
-//============================Coins Analyzer Cron==============================================================
-if (process.env.ENABLE_INTERNAL_CRON === "true") {
-  // mỗi 5 phút lấy giá + on-chain
-  cron.schedule("*/5 * * * *", async () => {
-    console.log("CRON: fetching price & on-chain ...");
-    try { await runPriceWorker(); } catch(e){ console.error(e); }
-    try { await runOnchainWorker(); } catch(e){ console.error(e); }
-  });
-
-  // mỗi 15 phút lấy news (nếu có key)
-  cron.schedule("*/15 * * * *", async () => {
-    console.log("CRON: fetching news ...");
-    try { await runNewsWorker(); } catch(e){ console.error(e); }
-  });
-
-  console.log("✅ Internal cron enabled");
-}
