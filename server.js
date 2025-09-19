@@ -5,6 +5,7 @@ import axios from "axios";
 import coinListRoute from './routes/coinList.js';
 import { sendAlertEmail } from "./utils/sendAlertEmail.js";
 //=====================Coin Analyzer============================================
+import cron from "node-cron";
 import { runPriceWorker } from "./workers/price_worker.js";
 import { runOnchainWorker } from "./workers/onchain_worker.js";
 import { runNewsWorker } from "./workers/news_worker.js";
