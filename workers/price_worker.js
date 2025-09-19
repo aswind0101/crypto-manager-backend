@@ -5,67 +5,12 @@ import { q } from "../utils/db.js";
 
 const CG_BASE = process.env.COINGECKO_API_BASE || "https://api.coingecko.com/api/v3";
 const CG_KEY  = process.env.COINGECKO_API_KEY || "";
+const BINANCE_BASE = process.env.BINANCE_API_BASE || "https://api.binance.com";
 
-/**
- * Lấy ohlc từ CoinGecko:
- *  - 1d => 24h candle (timeframe 1h)
- *  - 1 => 1 ngày cho daily; ta dùng endpoints market_chart
- */
-async function fetchOhlcForCoin({ id, coingecko_id }) {
-  // Lấy 1h candles trong ~2 ngày (để đủ dữ liệu tính chỉ báo)
-  // CoinGecko /coins/{id}/market_chart?vs_currency=usd&days=2&interval=hourly
-  const url1h = `${CG_BASE}/coins/${coingecko_id}/market_chart?vs_currency=usd&days=2&interval=hourly${CG_KEY ? `&x_cg_pro_api_key=${CG_KEY}` : ""}`;
-  const urlMin = `${CG_BASE}/coins/${coingecko_id}/market_chart?vs_currency=usd&days=2&interval=5m${CG_KEY ? `&x_cg_pro_api_key=${CG_KEY}` : ""}`;
+function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
 
-  const [hResp, mResp] = await Promise.all([
-    axios.get(url1h),
-    axios.get(urlMin)
-  ]);
-
-  // CG trả về mảng [timestamp, price]/[timestamp, total_volumes]
-  // Không có OHLC chuẩn; ta dựng OHLC từ dữ liệu 5m & hourly (approx)
-  // Đơn giản: với hourly: treat price[] làm "close", open = prev close, high/low theo min/max window
-  const insertRows = [];
-
-  const toOhlc = (prices, volumes, intervalLabel) => {
-    if (!Array.isArray(prices)) return;
-    for (let i = 1; i < prices.length; i++) {
-      const [tPrev, pPrev] = prices[i - 1];
-      const [tCur, pCur] = prices[i];
-      const openTime = dayjs(tPrev).toDate();
-      const closeTime = dayjs(tCur).toDate();
-      const open = pPrev;
-      const close = pCur;
-
-      // High/Low xấp xỉ từ đoạn 2 giá; nếu có 5m chi tiết sẽ chính xác hơn
-      const high = Math.max(open, close);
-      const low  = Math.min(open, close);
-
-      // Volume xấp xỉ theo volumes[i][1] - volumes[i-1][1] nếu có
-      let vol = null;
-      if (Array.isArray(volumes) && volumes[i] && volumes[i-1]) {
-        const d = volumes[i][1] - volumes[i-1][1];
-        vol = d >= 0 ? d : null;
-      }
-
-      insertRows.push({
-        coin_id: id,
-        timeframe: intervalLabel,
-        open_time: openTime,
-        close_time: closeTime,
-        open, high, low, close,
-        volume: vol,
-        source: "coingecko",
-      });
-    }
-  };
-
-  toOhlc(hResp.data?.prices, hResp.data?.total_volumes, "1h");
-  toOhlc(mResp.data?.prices, mResp.data?.total_volumes, "15m");
-
-  // upsert
-  const client = await q("SELECT 1"); // ensure pool init
-  for (const row of insertRows) {
+async function upsertRows(rows) {
+  for (const row of rows) {
     await q(
       `INSERT INTO price_ohlc
        (coin_id, timeframe, open_time, close_time, open, high, low, close, volume, source)
@@ -83,16 +28,126 @@ async function fetchOhlcForCoin({ id, coingecko_id }) {
       ]
     );
   }
+  return rows.length;
+}
 
-  return insertRows.length;
+/** ---------- CoinGecko (primary) ---------- */
+async function fetchFromCoingecko({ id, coingecko_id }) {
+  const headers = { "User-Agent": "crypto-manager/1.0" };
+  const keyQuery = CG_KEY ? `&x_cg_pro_api_key=${CG_KEY}` : "";
+
+  const url1h  = `${CG_BASE}/coins/${coingecko_id}/market_chart?vs_currency=usd&days=2&interval=hourly${keyQuery}`;
+  const url15m = `${CG_BASE}/coins/${coingecko_id}/market_chart?vs_currency=usd&days=2&interval=5m${keyQuery}`;
+
+  // retry nhẹ nếu 429
+  let hResp, mResp;
+  for (let i=0;i<2;i++){
+    try {
+      [hResp, mResp] = await Promise.all([
+        axios.get(url1h,  { headers }),
+        axios.get(url15m, { headers }),
+      ]);
+      break;
+    } catch (e) {
+      if (e.response?.status === 429 && i===0) { await sleep(1500); continue; }
+      throw e;
+    }
+  }
+
+  const rows = [];
+  const toOhlc = (prices, volumes, label) => {
+    if (!Array.isArray(prices)) return;
+    for (let i = 1; i < prices.length; i++) {
+      const [tPrev, pPrev] = prices[i - 1];
+      const [tCur, pCur]   = prices[i];
+      const openTime  = dayjs(tPrev).toDate();
+      const closeTime = dayjs(tCur).toDate();
+      const open  = Number(pPrev);
+      const close = Number(pCur);
+      const high  = Math.max(open, close);
+      const low   = Math.min(open, close);
+      let vol = null;
+      if (Array.isArray(volumes) && volumes[i] && volumes[i-1]) {
+        const d = volumes[i][1] - volumes[i-1][1];
+        vol = d >= 0 ? Number(d) : null;
+      }
+      rows.push({
+        coin_id: id, timeframe: label, open_time: openTime, close_time: closeTime,
+        open, high, low, close, volume: vol, source: "coingecko"
+      });
+    }
+  };
+  toOhlc(hResp.data?.prices, hResp.data?.total_volumes, "1h");
+  toOhlc(mResp.data?.prices, mResp.data?.total_volumes, "15m");
+
+  return upsertRows(rows);
+}
+
+/** ---------- Binance (fallback) ---------- */
+function toMs(t){ return dayjs(t).toDate(); }
+function binanceInterval(tf){ return tf==="15m"?"15m":tf==="1h"?"1h":null; }
+
+async function fetchFromBinance({ id, binance_symbol }) {
+  if (!binance_symbol) return 0;
+
+  async function getKlines(interval, limit=200){
+    const url = `${BINANCE_BASE}/api/v3/klines?symbol=${binance_symbol}&interval=${interval}&limit=${limit}`;
+    const { data } = await axios.get(url, { headers: { "User-Agent":"crypto-manager/1.0" }});
+    // kline format: [openTime, open, high, low, close, volume, closeTime, ...]
+    return data.map(k => ({
+      open_time: toMs(k[0]),
+      open: Number(k[1]),
+      high: Number(k[2]),
+      low:  Number(k[3]),
+      close:Number(k[4]),
+      volume:Number(k[5]),
+      close_time: toMs(k[6]),
+    }));
+  }
+
+  const rows = [];
+  const map = async (tf) => {
+    const iv = binanceInterval(tf);
+    if (!iv) return;
+    const kl = await getKlines(iv, 300);
+    for (const c of kl) {
+      rows.push({
+        coin_id: id, timeframe: tf,
+        open_time: c.open_time, close_time: c.close_time,
+        open: c.open, high: c.high, low: c.low, close: c.close,
+        volume: c.volume, source: "binance"
+      });
+    }
+  };
+
+  await map("15m");
+  await map("1h");
+  return upsertRows(rows);
+}
+
+/** ---------- Public API ---------- */
+async function fetchOhlcForCoin(coin){
+  // ưu tiên CG, nếu 429/err → fallback Binance
+  try {
+    if (!coin.coingecko_id) throw new Error("no_cg");
+    const n = await fetchFromCoingecko(coin);
+    if (n > 0) return n;
+    throw new Error("cg_empty");
+  } catch (e) {
+    // fallback
+    try {
+      const n2 = await fetchFromBinance(coin);
+      return n2;
+    } catch (e2) {
+      throw e2;
+    }
+  }
 }
 
 export async function runPriceWorker() {
-  // lấy danh sách coin active
-  const { rows: coins } = await q(`SELECT id, symbol, coingecko_id FROM crypto_assets WHERE is_active = true`);
+  const { rows: coins } = await q(`SELECT id, symbol, coingecko_id, binance_symbol FROM crypto_assets WHERE is_active = true`);
   let total = 0;
   for (const c of coins) {
-    if (!c.coingecko_id) continue;
     try {
       const n = await fetchOhlcForCoin(c);
       total += n;
@@ -104,7 +159,6 @@ export async function runPriceWorker() {
   return total;
 }
 
-// Nếu chạy file trực tiếp
 if (process.argv[1] && process.argv[1].endsWith("price_worker.js")) {
-  runPriceWorker().then(() => process.exit(0)).catch(() => process.exit(1));
+  runPriceWorker().then(()=>process.exit(0)).catch(()=>process.exit(1));
 }
