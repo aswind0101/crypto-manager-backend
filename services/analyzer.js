@@ -1,0 +1,171 @@
+// backend/services/analyzer.js
+import { q } from "../utils/db.js";
+import dayjs from "dayjs";
+import {
+  RSI, EMA, MACD
+} from "technicalindicators";
+
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function normalize01(v, vmin, vmax) {
+  if (vmin === vmax) return 0.5;
+  return clamp((v - vmin) / (vmax - vmin), 0, 1);
+}
+
+async function getCloses(coin_id, timeframe, limit=200) {
+  const { rows } = await q(
+    `SELECT close FROM price_ohlc WHERE coin_id=$1 AND timeframe=$2 ORDER BY close_time ASC`,
+    [coin_id, timeframe]
+  );
+  return rows.slice(-limit).map(r => Number(r.close));
+}
+
+async function getLatestClose(coin_id) {
+  const { rows } = await q(
+    `SELECT close FROM price_ohlc WHERE coin_id=$1 ORDER BY close_time DESC LIMIT 1`,
+    [coin_id]
+  );
+  return rows[0]?.close ? Number(rows[0].close) : null;
+}
+
+async function getWhaleStats(coin_id) {
+  // 24h gần nhất
+  const since = dayjs().subtract(24, "hour").toDate();
+  const { rows } = await q(
+    `SELECT COUNT(*) AS cnt,
+            COALESCE(SUM(CASE WHEN is_large THEN 1 ELSE 0 END),0) AS large_cnt,
+            COALESCE(SUM(CASE WHEN direction='to_exchange' THEN amount_usd ELSE 0 END),0) AS inflow_usd,
+            COALESCE(SUM(CASE WHEN direction='from_exchange' THEN amount_usd ELSE 0 END),0) AS outflow_usd
+     FROM onchain_transfers
+     WHERE coin_id=$1 AND block_time >= $2`,
+    [coin_id, since]
+  );
+  const r = rows[0] || {};
+  return {
+    total: Number(r.cnt || 0),
+    large: Number(r.large_cnt || 0),
+    inflow_usd: Number(r.inflow_usd || 0),
+    outflow_usd: Number(r.outflow_usd || 0),
+    netflow_usd: Number(r.outflow_usd || 0) - Number(r.inflow_usd || 0)
+  };
+}
+
+async function getNewsStats(coin_id) {
+  const since = dayjs().subtract(48, "hour").toDate();
+  const { rows } = await q(
+    `SELECT COUNT(*) AS cnt FROM news_items WHERE coin_id=$1 AND published_at >= $2`,
+    [coin_id, since]
+  );
+  return { recentCount: Number(rows[0]?.cnt || 0) };
+}
+
+export async function analyzeCoin(symbol) {
+  // map symbol -> coin_id
+  const { rows: coinRows } = await q(`SELECT id, symbol FROM crypto_assets WHERE UPPER(symbol)=UPPER($1) AND is_active=true`, [symbol]);
+  if (!coinRows.length) throw new Error(`Symbol ${symbol} not found`);
+  const coin_id = coinRows[0].id;
+
+  // prices
+  const closes15 = await getCloses(coin_id, "15m", 200);
+  const closes1h  = await getCloses(coin_id, "1h", 200);
+  const px = await getLatestClose(coin_id);
+  if (!closes15.length || !px) throw new Error("Not enough price data; run price_worker first.");
+
+  // indicators
+  const rsi = RSI.calculate({ values: closes15, period: 14 }).slice(-1)[0] || null;
+  const ema12 = EMA.calculate({ values: closes15, period: 12 }).slice(-1)[0] || null;
+  const ema26 = EMA.calculate({ values: closes15, period: 26 }).slice(-1)[0] || null;
+  const macdArr = MACD.calculate({ values: closes15, fastPeriod:12, slowPeriod:26, signalPeriod:9, SimpleMAOscillator:false, SimpleMASignal:false });
+  const macd = macdArr.slice(-1)[0] || null;
+
+  // normalize signals 0..1
+  const rsiSig = rsi != null ? (rsi <= 30 ? 0.85 : rsi < 50 ? 0.65 : rsi < 60 ? 0.5 : 0.3) : 0.5;
+  const momentumSig = (ema12 && ema26) ? (ema12 > ema26 ? 0.7 : 0.3) : 0.5;
+  const macdSig = macd ? (macd.histogram > 0 ? normalize01(macd.histogram, 0, Math.abs(macd.histogram)*2) : 0.3) : 0.5;
+
+  // whale/on-chain
+  const whale = await getWhaleStats(coin_id);
+  // netflow_usd > 0 (out > in) → tích cực, ngược lại tiêu cực
+  const netflowSig = (whale.netflow_usd > 0) ? 0.65 : (whale.netflow_usd < 0 ? 0.35 : 0.5);
+  // large transfers tăng → biến động: nếu netflow dương + nhiều large -> có thể là gom (0.6), ngược lại 0.4
+  const largeSig = (whale.large >= 3)
+    ? (whale.netflow_usd > 0 ? 0.6 : 0.4)
+    : 0.5;
+
+  // news
+  const news = await getNewsStats(coin_id);
+  const newsSig = (news.recentCount >= 10) ? 0.6 : (news.recentCount >= 3 ? 0.55 : 0.5);
+
+  // combine weights
+  const weights = {
+    rsiSig: 0.2,
+    momentumSig: 0.2,
+    macdSig: 0.15,
+    netflowSig: 0.25,
+    largeSig: 0.1,
+    newsSig: 0.1,
+  };
+
+  const score =
+      rsiSig*weights.rsiSig +
+      momentumSig*weights.momentumSig +
+      macdSig*weights.macdSig +
+      netflowSig*weights.netflowSig +
+      largeSig*weights.largeSig +
+      newsSig*weights.newsSig;
+
+  const overall = clamp(score, 0, 1);
+
+  // action
+  let action = "HOLD", confidence = "medium";
+  if (overall >= 0.75) action = "STRONG_BUY";
+  else if (overall >= 0.58) action = "BUY";
+  else if (overall <= 0.25) action = "STRONG_SELL";
+  else if (overall <= 0.42) action = "SELL";
+
+  if (overall >= 0.7 || overall <= 0.3) confidence = "high";
+
+  // price targets (đơn giản ban đầu): buy_zone = px*(1 ± 1.5%), SL 4%, TP1 6%, TP2 12%
+  const buy_zone_min = Number((px * 0.985).toFixed(6));
+  const buy_zone_max = Number((px * 1.015).toFixed(6));
+  const stop_loss     = Number((px * 0.96).toFixed(6));
+  const take_profit_1 = Number((px * 1.06).toFixed(6));
+  const take_profit_2 = Number((px * 1.12).toFixed(6));
+
+  // persist coin_analysis + signals
+  const { rows: ins } = await q(
+    `INSERT INTO coin_analysis
+     (coin_id, overall_score, action, confidence, buy_zone_min, buy_zone_max, stop_loss, take_profit_1, take_profit_2, data)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     RETURNING id, run_at`,
+    [coin_id, overall, action, confidence, buy_zone_min, buy_zone_max, stop_loss, take_profit_1, take_profit_2, {
+      px, whale, news, rsi, ema12, ema26, macd
+    }]
+  );
+  const analysis_id = ins[0].id;
+
+  const signals = [
+    { name: "RSI_14", score: rsiSig, severity: rsi != null ? (rsi < 30 ? "high" : rsi < 50 ? "medium" : "low") : "low", details: { rsi } },
+    { name: "EMA_12_26", score: momentumSig, severity: "medium", details: { ema12, ema26 } },
+    { name: "MACD", score: macdSig, severity: "medium", details: { macd } },
+    { name: "Exchange_Net_Flow", score: netflowSig, severity: "medium", details: whale },
+    { name: "Whale_Large_Transfers", score: largeSig, severity: "medium", details: { large: whale.large } },
+    { name: "News_Activity", score: newsSig, severity: "low", details: news },
+  ];
+
+  for (const s of signals) {
+    await q(
+      `INSERT INTO coin_signals (analysis_id, name, score, severity, details)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [analysis_id, s.name, s.score, s.severity, s.details]
+    );
+  }
+
+  return {
+    symbol: coinRows[0].symbol,
+    overall_score: Number(overall.toFixed(4)),
+    action, confidence,
+    buy_zone: [buy_zone_min, buy_zone_max],
+    stop_loss, take_profit: [take_profit_1, take_profit_2],
+    run_at: ins[0].run_at
+  };
+}

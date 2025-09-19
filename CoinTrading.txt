@@ -1,0 +1,195 @@
+ROLLBACK;
+
+BEGIN;
+
+-- =========================================================
+-- 0) Tuỳ chọn: Đổi tên bảng 'coin' -> 'crypto_assets' nếu đang tồn tại
+--    (an toàn: chỉ rename khi 'crypto_assets' CHƯA tồn tại)
+-- =========================================================
+DO $$
+BEGIN
+  IF EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema='public' AND table_name='coin'
+     )
+     AND NOT EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema='public' AND table_name='crypto_assets'
+     )
+  THEN
+     EXECUTE 'ALTER TABLE public.coin RENAME TO crypto_assets';
+  END IF;
+END $$;
+
+-- =========================================================
+-- 1) Danh mục tài sản crypto (thay cho bảng coin)
+-- =========================================================
+CREATE TABLE IF NOT EXISTS public.crypto_assets (
+  id               SERIAL PRIMARY KEY,
+  symbol           VARCHAR(32)  NOT NULL UNIQUE,         -- VD: 'NEAR','BTC','ETH'
+  name             VARCHAR(128) NOT NULL,                -- VD: 'NEAR Protocol'
+  chain            VARCHAR(64),                          -- VD: 'NEAR','Ethereum','BSC'
+  contract_address VARCHAR(128),                         -- NULL cho L1 như BTC/NEAR
+  decimals         INTEGER,                              -- ERC20 thường 18; NEAR ~24
+  coingecko_id     VARCHAR(128) UNIQUE,                  -- VD: 'near'
+  binance_symbol   VARCHAR(64) UNIQUE,                   -- VD: 'NEARUSDT'
+  is_active        BOOLEAN DEFAULT TRUE,
+  created_at       TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+  updated_at       TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+);
+
+-- =========================================================
+-- 2) Giá OHLCV theo timeframe
+-- =========================================================
+CREATE TABLE IF NOT EXISTS public.price_ohlc (
+  id          SERIAL PRIMARY KEY,
+  coin_id     INTEGER NOT NULL REFERENCES public.crypto_assets(id) ON DELETE CASCADE,
+  timeframe   VARCHAR(8)  NOT NULL,              -- '1m','5m','15m','1h','4h','1d'
+  open_time   TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+  close_time  TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+  open        NUMERIC(20,8) NOT NULL,
+  high        NUMERIC(20,8) NOT NULL,
+  low         NUMERIC(20,8) NOT NULL,
+  close       NUMERIC(20,8) NOT NULL,
+  volume      NUMERIC(30,10),
+  source      VARCHAR(32) NOT NULL,              -- 'coingecko','binance',...
+  created_at  TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+  CONSTRAINT price_ohlc_time_ck CHECK (timeframe IN ('1m','5m','15m','1h','4h','1d')),
+  CONSTRAINT price_ohlc_range_ck CHECK (close_time >= open_time)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_price_ohlc_unique
+  ON public.price_ohlc (coin_id, timeframe, open_time, source);
+CREATE INDEX IF NOT EXISTS ix_price_ohlc_coin_time
+  ON public.price_ohlc (coin_id, open_time DESC);
+
+-- =========================================================
+-- 3) Danh sách địa chỉ sàn (để nhận diện inflow/outflow)
+-- =========================================================
+CREATE TABLE IF NOT EXISTS public.exchange_addresses (
+  id          SERIAL PRIMARY KEY,
+  chain       VARCHAR(64) NOT NULL,                  -- 'Ethereum','BSC','NEAR',...
+  address     VARCHAR(128) NOT NULL,
+  name        VARCHAR(64),                           -- 'Binance','OKX','Kraken',...
+  is_deposit  BOOLEAN DEFAULT TRUE,                  -- địa chỉ nạp
+  is_active   BOOLEAN DEFAULT TRUE,
+  created_at  TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+  UNIQUE (chain, address)
+);
+
+-- =========================================================
+-- 4) Giao dịch on-chain (theo dõi cá mập/flows)
+-- =========================================================
+CREATE TABLE IF NOT EXISTS public.onchain_transfers (
+  id             SERIAL PRIMARY KEY,
+  coin_id        INTEGER NOT NULL REFERENCES public.crypto_assets(id) ON DELETE CASCADE,
+  chain          VARCHAR(64) NOT NULL,                       -- chain dữ liệu
+  tx_hash        VARCHAR(200) NOT NULL,
+  from_address   VARCHAR(128),
+  to_address     VARCHAR(128),
+  amount_token   NUMERIC(38,18),                             -- hỗ trợ decimals lớn
+  amount_usd     NUMERIC(20,2),
+  block_number   BIGINT,
+  block_time     TIMESTAMP WITHOUT TIME ZONE,
+  direction      VARCHAR(16) DEFAULT 'unknown',              -- 'to_exchange','from_exchange','unknown'
+  exchange_name  VARCHAR(64),                                -- nếu map được exchange_addresses
+  is_large       BOOLEAN DEFAULT FALSE,                      -- flag > ngưỡng USD/token
+  source         VARCHAR(32)  NOT NULL,                      -- 'etherscan','covalent',...
+  created_at     TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_onchain_transfers_coin_time
+  ON public.onchain_transfers (coin_id, block_time DESC);
+CREATE INDEX IF NOT EXISTS ix_onchain_transfers_from
+  ON public.onchain_transfers (from_address);
+CREATE INDEX IF NOT EXISTS ix_onchain_transfers_to
+  ON public.onchain_transfers (to_address);
+CREATE INDEX IF NOT EXISTS ix_onchain_transfers_large
+  ON public.onchain_transfers (coin_id, is_large);
+
+-- =========================================================
+-- 5) Tin tức & điểm cảm xúc
+-- =========================================================
+CREATE TABLE IF NOT EXISTS public.news_items (
+  id              SERIAL PRIMARY KEY,
+  coin_id         INTEGER REFERENCES public.crypto_assets(id) ON DELETE CASCADE,
+  source          VARCHAR(64) NOT NULL,                      -- 'newsapi','cryptopanic',...
+  title           TEXT NOT NULL,
+  url             TEXT NOT NULL,
+  published_at    TIMESTAMP WITHOUT TIME ZONE,
+  sentiment_score NUMERIC(3,2),                              -- -1.00 .. 1.00
+  created_at      TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+  UNIQUE (source, url)
+);
+CREATE INDEX IF NOT EXISTS ix_news_items_coin_time
+  ON public.news_items (coin_id, published_at DESC);
+
+-- =========================================================
+-- 6) Kết quả phân tích (mỗi lần chạy)
+-- =========================================================
+CREATE TABLE IF NOT EXISTS public.coin_analysis (
+  id              SERIAL PRIMARY KEY,
+  coin_id         INTEGER NOT NULL REFERENCES public.crypto_assets(id) ON DELETE CASCADE,
+  run_at          TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+  overall_score   NUMERIC(5,4),                               -- 0..1
+  action          VARCHAR(16),                                -- 'STRONG_BUY','BUY','HOLD','SELL','STRONG_SELL'
+  confidence      VARCHAR(16),                                -- 'low','medium','high'
+  buy_zone_min    NUMERIC(20,8),
+  buy_zone_max    NUMERIC(20,8),
+  stop_loss       NUMERIC(20,8),
+  take_profit_1   NUMERIC(20,8),
+  take_profit_2   NUMERIC(20,8),
+  data            JSONB DEFAULT '{}'::jsonb                   -- snapshot metrics
+);
+CREATE INDEX IF NOT EXISTS ix_coin_analysis_coin_run
+  ON public.coin_analysis (coin_id, run_at DESC);
+
+-- =========================================================
+-- 7) Tín hiệu chi tiết cho mỗi lần phân tích
+-- =========================================================
+CREATE TABLE IF NOT EXISTS public.coin_signals (
+  id            SERIAL PRIMARY KEY,
+  analysis_id   INTEGER NOT NULL REFERENCES public.coin_analysis(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,             -- 'RSI_14','Exchange_Net_Flow',...
+  score         NUMERIC(5,4),              -- 0..1 (chuẩn hoá)
+  severity      VARCHAR(16),               -- 'low','medium','high'
+  details       JSONB DEFAULT '{}'::jsonb,
+  created_at    TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_coin_signals_analysis
+  ON public.coin_signals (analysis_id);
+
+-- =========================================================
+-- 8) Lưu payload thô từ nguồn (debug/backfill)
+-- =========================================================
+CREATE TABLE IF NOT EXISTS public.raw_fetch_logs (
+  id          SERIAL PRIMARY KEY,
+  coin_id     INTEGER REFERENCES public.crypto_assets(id) ON DELETE SET NULL,
+  source      VARCHAR(32)  NOT NULL,         -- 'coingecko','etherscan','covalent','thegraph','newsapi'
+  endpoint    TEXT,
+  status_code INTEGER,
+  payload     JSONB,
+  fetched_at  TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_raw_fetch_logs_coin_time
+  ON public.raw_fetch_logs (coin_id, fetched_at DESC);
+
+-- =========================================================
+-- 9) Đăng ký nhận cảnh báo theo coin (gắn user hiện có)
+--    Lưu ý: hệ thống đã có bảng public.users với cột firebase_uid (UNIQUE)
+-- =========================================================
+CREATE TABLE IF NOT EXISTS public.user_coin_subscriptions (
+  id                 SERIAL PRIMARY KEY,
+  user_firebase_uid  VARCHAR(128) NOT NULL REFERENCES public.users(firebase_uid),
+  coin_id            INTEGER NOT NULL REFERENCES public.crypto_assets(id) ON DELETE CASCADE,
+  alert_rules        JSONB DEFAULT '{}'::jsonb,   -- cấu hình rule per-user (ngưỡng %, whale, sentiment…)
+  created_at         TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+  UNIQUE (user_firebase_uid, coin_id)
+);
+
+-- =========================================================
+-- 10) Seed tối thiểu (có thể thêm coin khác sau)
+-- =========================================================
+INSERT INTO public.crypto_assets (symbol, name, chain, contract_address, decimals, coingecko_id, binance_symbol)
+VALUES ('NEAR','NEAR Protocol','NEAR', NULL, 24, 'near', 'NEARUSDT')
+ON CONFLICT (symbol) DO NOTHING;
+
+COMMIT;

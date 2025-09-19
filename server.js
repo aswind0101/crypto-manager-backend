@@ -4,7 +4,10 @@ import dotenv from "dotenv";
 import axios from "axios";
 import coinListRoute from './routes/coinList.js';
 import { sendAlertEmail } from "./utils/sendAlertEmail.js";
-
+//=====================Coin Analyzer============================================
+import { runPriceWorker } from "./workers/price_worker.js";
+import { runOnchainWorker } from "./workers/onchain_worker.js";
+import { runNewsWorker } from "./workers/news_worker.js";
 
 
 
@@ -80,6 +83,10 @@ app.use("/api/services", servicesRoute);
 import appointmentRoutes from "./routes/appointments.js";
 app.use("/api/appointments", appointmentRoutes);
 
+//============================Coins Analyzer======================================
+// server.js (hoặc index.js, phần setup app):
+import coinsRouter from "./routes/coins.js";
+app.use("/api/coins", coinsRouter);
 
 
 const pool = new Pool({
@@ -487,3 +494,21 @@ app.get("/", (req, res) => {
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server is running on http://localhost:${PORT}`);
 });
+
+//============================Coins Analyzer Cron==============================================================
+if (process.env.ENABLE_INTERNAL_CRON === "true") {
+  // mỗi 5 phút lấy giá + on-chain
+  cron.schedule("*/5 * * * *", async () => {
+    console.log("CRON: fetching price & on-chain ...");
+    try { await runPriceWorker(); } catch(e){ console.error(e); }
+    try { await runOnchainWorker(); } catch(e){ console.error(e); }
+  });
+
+  // mỗi 15 phút lấy news (nếu có key)
+  cron.schedule("*/15 * * * *", async () => {
+    console.log("CRON: fetching news ...");
+    try { await runNewsWorker(); } catch(e){ console.error(e); }
+  });
+
+  console.log("✅ Internal cron enabled");
+}
