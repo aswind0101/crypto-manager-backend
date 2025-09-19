@@ -3,7 +3,7 @@ import axios from "axios";
 import dayjs from "dayjs";
 import { q } from "../utils/db.js";
 
-const BINANCE_BASE = process.env.BINANCE_API_BASE || "https://api.binance.com";
+const BINANCE_BASE = process.env.BINANCE_API_BASE || "https://api.binance.us";
 const CG_BASE = process.env.COINGECKO_API_BASE || "https://api.coingecko.com/api/v3";
 const CG_KEY  = process.env.COINGECKO_API_KEY || "";
 
