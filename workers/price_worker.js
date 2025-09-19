@@ -3,9 +3,9 @@ import axios from "axios";
 import dayjs from "dayjs";
 import { q } from "../utils/db.js";
 
+const BINANCE_BASE = process.env.BINANCE_API_BASE || "https://api.binance.com";
 const CG_BASE = process.env.COINGECKO_API_BASE || "https://api.coingecko.com/api/v3";
 const CG_KEY  = process.env.COINGECKO_API_KEY || "";
-const BINANCE_BASE = process.env.BINANCE_API_BASE || "https://api.binance.com";
 
 function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
 
@@ -31,25 +31,63 @@ async function upsertRows(rows) {
   return rows.length;
 }
 
-/** ---------- CoinGecko (primary) ---------- */
-async function fetchFromCoingecko({ id, coingecko_id }) {
+/* ====================== BINANCE (PRIMARY) ====================== */
+function msToDate(ms){ return dayjs(ms).toDate(); }
+
+async function fetchFromBinance(coin) {
+  if (!coin.binance_symbol) throw new Error("binance_symbol_missing");
+
+  async function getKlines(interval, limit=300){
+    const url = `${BINANCE_BASE}/api/v3/klines?symbol=${coin.binance_symbol}&interval=${interval}&limit=${limit}`;
+    const { data } = await axios.get(url, { headers: { "User-Agent":"crypto-manager/1.0" }});
+    // [openTime, open, high, low, close, volume, closeTime, ...]
+    return data.map(k => ({
+      open_time: msToDate(k[0]),
+      open: Number(k[1]),
+      high: Number(k[2]),
+      low:  Number(k[3]),
+      close:Number(k[4]),
+      volume:Number(k[5]),
+      close_time: msToDate(k[6]),
+    }));
+  }
+
+  const rows = [];
+  const ivs = [{tf:"15m", iv:"15m"}, {tf:"1h", iv:"1h"}];
+
+  for (const {tf, iv} of ivs) {
+    const kl = await getKlines(iv, 500);
+    for (const c of kl) {
+      rows.push({
+        coin_id: coin.id, timeframe: tf,
+        open_time: c.open_time, close_time: c.close_time,
+        open: c.open, high: c.high, low: c.low, close: c.close,
+        volume: c.volume, source: "binance"
+      });
+    }
+  }
+
+  const n = await upsertRows(rows);
+  console.log(`price_worker: ${coin.symbol} <- Binance OK (${n} rows)`);
+  return n;
+}
+
+/* ====================== COINGECKO (FALLBACK) ====================== */
+async function fetchFromCoingecko(coin) {
+  if (!coin.coingecko_id) throw new Error("coingecko_id_missing");
+
   const headers = { "User-Agent": "crypto-manager/1.0" };
   const keyQuery = CG_KEY ? `&x_cg_pro_api_key=${CG_KEY}` : "";
+  const url1h  = `${CG_BASE}/coins/${coin.coingecko_id}/market_chart?vs_currency=usd&days=2&interval=hourly${keyQuery}`;
+  const url15m = `${CG_BASE}/coins/${coin.coingecko_id}/market_chart?vs_currency=usd&days=2&interval=5m${keyQuery}`;
 
-  const url1h  = `${CG_BASE}/coins/${coingecko_id}/market_chart?vs_currency=usd&days=2&interval=hourly${keyQuery}`;
-  const url15m = `${CG_BASE}/coins/${coingecko_id}/market_chart?vs_currency=usd&days=2&interval=5m${keyQuery}`;
-
-  // retry nhẹ nếu 429
   let hResp, mResp;
   for (let i=0;i<2;i++){
     try {
-      [hResp, mResp] = await Promise.all([
-        axios.get(url1h,  { headers }),
-        axios.get(url15m, { headers }),
-      ]);
+      [hResp, mResp] = await Promise.all([axios.get(url1h, {headers}), axios.get(url15m,{headers})]);
       break;
     } catch (e) {
-      if (e.response?.status === 429 && i===0) { await sleep(1500); continue; }
+      if ((e.response?.status === 429 || e.response?.status === 451) && i===0) { await sleep(1500); continue; }
       throw e;
     }
   }
@@ -72,75 +110,36 @@ async function fetchFromCoingecko({ id, coingecko_id }) {
         vol = d >= 0 ? Number(d) : null;
       }
       rows.push({
-        coin_id: id, timeframe: label, open_time: openTime, close_time: closeTime,
+        coin_id: coin.id, timeframe: label, open_time: openTime, close_time: closeTime,
         open, high, low, close, volume: vol, source: "coingecko"
       });
     }
   };
+
   toOhlc(hResp.data?.prices, hResp.data?.total_volumes, "1h");
   toOhlc(mResp.data?.prices, mResp.data?.total_volumes, "15m");
 
-  return upsertRows(rows);
+  const n = await upsertRows(rows);
+  console.log(`price_worker: ${coin.symbol} <- CoinGecko OK (${n} rows)`);
+  return n;
 }
 
-/** ---------- Binance (fallback) ---------- */
-function toMs(t){ return dayjs(t).toDate(); }
-function binanceInterval(tf){ return tf==="15m"?"15m":tf==="1h"?"1h":null; }
-
-async function fetchFromBinance({ id, binance_symbol }) {
-  if (!binance_symbol) return 0;
-
-  async function getKlines(interval, limit=200){
-    const url = `${BINANCE_BASE}/api/v3/klines?symbol=${binance_symbol}&interval=${interval}&limit=${limit}`;
-    const { data } = await axios.get(url, { headers: { "User-Agent":"crypto-manager/1.0" }});
-    // kline format: [openTime, open, high, low, close, volume, closeTime, ...]
-    return data.map(k => ({
-      open_time: toMs(k[0]),
-      open: Number(k[1]),
-      high: Number(k[2]),
-      low:  Number(k[3]),
-      close:Number(k[4]),
-      volume:Number(k[5]),
-      close_time: toMs(k[6]),
-    }));
-  }
-
-  const rows = [];
-  const map = async (tf) => {
-    const iv = binanceInterval(tf);
-    if (!iv) return;
-    const kl = await getKlines(iv, 300);
-    for (const c of kl) {
-      rows.push({
-        coin_id: id, timeframe: tf,
-        open_time: c.open_time, close_time: c.close_time,
-        open: c.open, high: c.high, low: c.low, close: c.close,
-        volume: c.volume, source: "binance"
-      });
-    }
-  };
-
-  await map("15m");
-  await map("1h");
-  return upsertRows(rows);
-}
-
-/** ---------- Public API ---------- */
+/* ====================== RUNNER ====================== */
 async function fetchOhlcForCoin(coin){
-  // ưu tiên CG, nếu 429/err → fallback Binance
+  // Try BINANCE first
   try {
-    if (!coin.coingecko_id) throw new Error("no_cg");
-    const n = await fetchFromCoingecko(coin);
-    if (n > 0) return n;
-    throw new Error("cg_empty");
+    const nB = await fetchFromBinance(coin);
+    if (nB > 0) return nB;
   } catch (e) {
-    // fallback
-    try {
-      const n2 = await fetchFromBinance(coin);
-      return n2;
-    } catch (e2) {
-      throw e2;
-    }
+    console.warn(`price_worker: ${coin.symbol} Binance failed:`, e.message);
+  }
+  // Fallback to COINGECKO
+  try {
+    const nC = await fetchFromCoingecko(coin);
+    return nC;
+  } catch (e) {
+    console.warn(`price_worker: ${coin.symbol} CoinGecko failed:`, e.message);
+    throw e;
   }
 }
 

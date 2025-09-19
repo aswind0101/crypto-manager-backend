@@ -511,7 +511,7 @@ if (process.env.ENABLE_INTERNAL_CRON === "true") {
 
   console.log("✅ Internal cron enabled");
 }
-
+//============================Coins Analyzer Functions======================================
 
 // Health check
 app.get("/", (req, res) => {
