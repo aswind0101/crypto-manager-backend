@@ -1,89 +1,126 @@
 // backend/workers/news_worker.js
-import axios from "axios";
-import dayjs from "dayjs";
 import { q } from "../utils/db.js";
 
-const NEWSAPI_BASE = process.env.NEWSAPI_BASE || "https://newsapi.org/v2";
 const NEWSAPI_KEY = process.env.NEWSAPI_KEY || "";
-const CP_BASE = process.env.CRYPTOPANIC_BASE || "https://cryptopanic.com/api/v1";
-const CP_TOKEN = process.env.CRYPTOPANIC_TOKEN || "";
+const CP_TOKEN    = process.env.CP_TOKEN || "";
 
-async function fetchNewsForCoin(coin) {
-    let inserted = 0;
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 
-    // NewsAPI
-    if (NEWSAPI_KEY) {
-        const url = `${NEWSAPI_BASE}/everything?q=${encodeURIComponent(coin.name)}&language=en&sortBy=publishedAt&pageSize=20&apiKey=${NEWSAPI_KEY}`;
-        const resp = await axios.get(url);
-        const articles = resp.data?.articles || [];
-        for (const a of articles) {
-            await q(
-                `INSERT INTO news_items (coin_id, source, title, url, published_at, sentiment_score)
-         VALUES ($1,'newsapi',$2,$3,$4,NULL)
-         ON CONFLICT (source, url) DO NOTHING`,
-                [coin.id, a.title || "", a.url, a.publishedAt ? dayjs(a.publishedAt).toDate() : null]
-            );
-            inserted++;
-        }
-    }
-
-    // CryptoPanic
-    if (CP_TOKEN) {
-        const url = `${CP_BASE}/posts/?auth_token=${CP_TOKEN}&currencies=${coin.symbol.toLowerCase()}&public=true`;
-        const resp = await axios.get(url);
-        const posts = resp.data?.results || [];
-        for (const p of posts) {
-            await q(
-                `INSERT INTO news_items (coin_id, source, title, url, published_at, sentiment_score)
-         VALUES ($1,'cryptopanic',$2,$3,$4,NULL)
-         ON CONFLICT (source, url) DO NOTHING`,
-                [coin.id, p.title || "", p.url, p.published_at ? dayjs(p.published_at).toDate() : null]
-            );
-            inserted++;
-        }
-    }
-
-    return inserted;
+// sentiment cực nhẹ (fallback). Nếu không đủ “đã tay”, sau có thể `npm i vader-sentiment`
+function naiveSentiment(text="") {
+  const pos = ["surge","jump","bull","up","growth","partnership","adopt","record","high"];
+  const neg = ["hack","exploit","down","bear","drop","lawsuit","ban","fraud","risk"];
+  let s = 0;
+  const t = text.toLowerCase();
+  pos.forEach(w => { if (t.includes(w)) s += 1; });
+  neg.forEach(w => { if (t.includes(w)) s -= 1; });
+  // scale về [-1,1]
+  if (s > 0) return Math.min(1, s / 5);
+  if (s < 0) return Math.max(-1, s / 5);
+  return 0;
 }
 
+async function insertNews({ coin_id, source, title, url, published_at, sentiment }) {
+  await q(
+    `INSERT INTO news_items (coin_id, source, title, url, published_at, sentiment_score)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (source, url) DO NOTHING`,
+    [coin_id, source, title || "", url || "", published_at || null, sentiment]
+  );
+}
+
+async function fetchFromNewsAPI(coin){
+  if (!NEWSAPI_KEY) return 0;
+  const params = new URLSearchParams({
+    q: `"${coin.name}" OR ${coin.symbol}`,
+    language: "en",
+    sortBy: "publishedAt",
+    pageSize: "50",
+    apiKey: NEWSAPI_KEY
+  });
+  const url = `https://newsapi.org/v2/everything?${params.toString()}`;
+  const r = await fetch(url, { headers: { accept: "application/json" } });
+  if (!r.ok) {
+    // 429 thường xuyên -> chờ nhẹ rồi thử lại 1 lần
+    if (r.status === 429) { await sleep(1200); return fetchFromNewsAPI(coin); }
+    throw new Error(`NewsAPI status ${r.status}`);
+  }
+  const j = await r.json();
+  const items = j?.articles || [];
+  let ins = 0;
+  for (const a of items) {
+    const title = a?.title || "";
+    const url   = a?.url || "";
+    const ts    = a?.publishedAt ? new Date(a.publishedAt) : null;
+    const s     = naiveSentiment(`${a?.title || ""} ${a?.description || ""}`);
+    await insertNews({ coin_id: coin.id, source: "newsapi", title, url, published_at: ts, sentiment: s });
+    ins++;
+  }
+  return ins;
+}
+
+async function fetchFromCryptoPanic(coin){
+  if (!CP_TOKEN) return 0;
+  // dùng `currencies` theo symbol, filter "news" & public
+  const params = new URLSearchParams({
+    auth_token: CP_TOKEN,
+    public: "true",
+    kind: "news",
+    currencies: coin.symbol
+  });
+  const url = `https://cryptopanic.com/api/v1/posts/?${params.toString()}`;
+  const r = await fetch(url, { headers: { accept: "application/json" } });
+  if (!r.ok) {
+    if (r.status === 429) { await sleep(1200); return fetchFromCryptoPanic(coin); }
+    throw new Error(`CryptoPanic status ${r.status}`);
+  }
+  const j = await r.json();
+  const items = j?.results || [];
+  let ins = 0;
+  for (const it of items) {
+    const title = it?.title || it?.metadata?.title || "";
+    const url   = it?.url || it?.metadata?.url || "";
+    const ts    = it?.published_at ? new Date(it.published_at) : null;
+    const s     = naiveSentiment(`${title} ${it?.metadata?.description || ""}`);
+    await insertNews({ coin_id: coin.id, source: "cryptopanic", title, url, published_at: ts, sentiment: s });
+    ins++;
+  }
+  return ins;
+}
+
+// ========== runners ==========
 export async function runNewsWorker() {
-    if (!NEWSAPI_KEY && !CP_TOKEN) {
-        console.log("news_worker: no API key -> skipped");
-        return 0;
+  const { rows: coins } = await q(`SELECT id, symbol, name FROM crypto_assets WHERE is_active=true`);
+  let total = 0;
+  for (const coin of coins) {
+    try {
+      const a = await fetchFromNewsAPI(coin).catch(() => 0);
+      const b = await fetchFromCryptoPanic(coin).catch(() => 0);
+      total += (a + b);
+      await sleep(250); // dịu rate
+    } catch (e) {
+      console.warn("news_worker:", coin.symbol, e.message);
     }
-    const { rows: coins } = await q(`SELECT id, symbol, name FROM crypto_assets WHERE is_active=true`);
-    let total = 0;
-    for (const c of coins) {
-        try {
-            total += await fetchNewsForCoin(c);
-        } catch (e) {
-            console.error(`news_worker: ${c.symbol} error:`, e.message);
-        }
-    }
-    console.log(`news_worker: inserted ${total} news rows`);
-    return total;
+  }
+  return total;
 }
 
 export async function runNewsForSymbol(symbol) {
-    if (!NEWSAPI_KEY && !CP_TOKEN) return 0;
-
-    const { rows } = await q(
-        `SELECT id, symbol, name
-     FROM crypto_assets
-     WHERE is_active=true AND UPPER(symbol)=UPPER($1)`,
-        [symbol]
-    );
-    if (!rows.length) return 0;
-
-    try {
-        return await fetchNewsForCoin(rows[0]);
-    } catch (e) {
-        console.error("runNewsForSymbol error:", e.message);
-        return 0;
-    }
+  const { rows } = await q(
+    `SELECT id, symbol, name FROM crypto_assets WHERE is_active=true AND UPPER(symbol)=UPPER($1)`,
+    [symbol]
+  );
+  if (!rows.length) return 0;
+  const coin = rows[0];
+  const a = await fetchFromNewsAPI(coin).catch(() => 0);
+  const b = await fetchFromCryptoPanic(coin).catch(() => 0);
+  return a + b;
 }
-// If run directly, execute the worker
 
+// CLI
 if (process.argv[1] && process.argv[1].endsWith("news_worker.js")) {
-    runNewsWorker().then(() => process.exit(0)).catch(() => process.exit(1));
+  runNewsWorker().then(n => {
+    console.log("news_worker inserted:", n);
+    process.exit(0);
+  });
 }

@@ -1,138 +1,174 @@
 // backend/workers/onchain_worker.js
-import axios from "axios";
-import dayjs from "dayjs";
 import { q } from "../utils/db.js";
 
-// Ngưỡng large transfer (USD) để gắn is_large
-const LARGE_USD = 100000; // 100k$ tuỳ chỉnh sau
+const COVALENT_KEY = process.env.COVALENT_KEY || "";
+const LARGE_USD = Number(process.env.ONCHAIN_LARGE_USD || 100000);
 
-const COVALENT_BASE = process.env.COVALENT_API_BASE || "https://api.covalenthq.com/v1";
-const COVALENT_KEY = process.env.COVALENT_API_KEY || "";
-const ETHERSCAN_BASE = process.env.ETHERSCAN_API_BASE || "https://api.etherscan.io/api";
-const ETHERSCAN_KEY = process.env.ETHERSCAN_API_KEY || "";
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 
-// Map chain của coin sang Covalent chain_id nếu có
-function guessCovalentChainId(chain) {
-    const c = (chain || "").toLowerCase();
-    if (c.includes("eth")) return 1;
-    if (c.includes("bsc") || c.includes("binance")) return 56;
-    if (c.includes("polygon")) return 137;
-    return null;
+// Map chuỗi chain trong DB -> chain_id Covalent
+const COVALENT_CHAIN_ID = {
+  "ETHEREUM": 1,
+  "BSC": 56,
+  "BINANCE SMART CHAIN": 56,
+  "POLYGON": 137,
+  "MATIC": 137,
+  "ARBITRUM": 42161,
+  "OPTIMISM": 10,
+  "AVALANCHE": 43114,
+  "BASE": 8453,
+};
+
+// lấy close mới nhất 15m để ước USD
+async function latestPriceUSD(coin_id){
+  const { rows } = await q(
+    `SELECT close FROM price_ohlc 
+     WHERE coin_id=$1 AND timeframe='15m' 
+     ORDER BY close_time DESC LIMIT 1`,
+    [coin_id]
+  );
+  return rows[0]?.close ? Number(rows[0].close) : null;
 }
 
-async function fetchFromCovalent(coin) {
-    // Cần contract_address + chain_id
-    const chainId = guessCovalentChainId(coin.chain);
-    if (!chainId || !coin.contract_address) return 0;
+async function loadExchangeMap(chain){
+  const { rows } = await q(
+    `SELECT address, name, is_deposit 
+       FROM exchange_addresses
+      WHERE is_active=true AND UPPER(chain)=UPPER($1)`,
+    [chain]
+  );
+  const m = new Map();
+  for (const r of rows) m.set(r.address?.toLowerCase(), { name: r.name, is_deposit: r.is_deposit });
+  return m;
+}
 
-    // Covalent: /{chain_id}/tokens/{contract_address}/token_transfers/
-    const url = `${COVALENT_BASE}/${chainId}/tokens/${coin.contract_address}/token_transfers/?key=${COVALENT_KEY}&page-size=200`;
+function directionAndName(from, to, exchangeMap){
+  const f = exchangeMap.get((from||"").toLowerCase());
+  const t = exchangeMap.get((to  ||"").toLowerCase());
+  if (t) return { direction: "to_exchange", exchange_name: t.name };
+  if (f) return { direction: "from_exchange", exchange_name: f.name };
+  return { direction: "unknown", exchange_name: null };
+}
 
-    const resp = await axios.get(url);
-    const items = resp.data?.data?.items || [];
-    let inserted = 0;
+async function insertTransfer(row){
+  await q(
+    `INSERT INTO onchain_transfers
+       (coin_id, chain, tx_hash, from_address, to_address, amount_token, amount_usd,
+        block_number, block_time, direction, exchange_name, is_large, source)
+     VALUES
+       ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+     ON CONFLICT DO NOTHING`,
+    [
+      row.coin_id, row.chain, row.tx_hash, row.from_address, row.to_address, row.amount_token, row.amount_usd,
+      row.block_number, row.block_time, row.direction, row.exchange_name, row.is_large, row.source
+    ]
+  );
+}
 
-    for (const it of items) {
-        const txHash = it.tx_hash;
-        const ts = it.block_signed_at ? dayjs(it.block_signed_at).toDate() : null;
-        const from = it.from_address;
-        const to = it.to_address;
-        const amountToken = (Number(it.delta) / Math.pow(10, coin.decimals || 18)) || null;
+// ------- Covalent (EVM ERC20) -------
+async function fetchFromCovalent(coin){
+  if (!COVALENT_KEY) return 0;
+  const chainId = COVALENT_CHAIN_ID[(coin.chain || "").toUpperCase()];
+  if (!chainId) return 0;
+  if (!coin.contract_address) return 0; // ERC20 bắt buộc có contract
 
-        // Ước tính USD từ close giá gần nhất trong price_ohlc (15m)
-        const { rows: px } = await q(
-            `SELECT close FROM price_ohlc WHERE coin_id = $1 AND timeframe='15m' ORDER BY close_time DESC LIMIT 1`,
-            [coin.id]
-        );
-        const price = px[0]?.close || null;
-        const amountUsd = price && amountToken ? (price * amountToken) : null;
+  // lấy exchange map
+  const exMap = await loadExchangeMap(coin.chain || "");
 
-        // map direction theo exchange_addresses
-        let direction = "unknown";
-        let exchange_name = null;
+  // lấy giá ước tính
+  const px = await latestPriceUSD(coin.id);
+  // decimals mặc định 18 nếu không có
+  const decimals = Number.isFinite(Number(coin.decimals)) ? Number(coin.decimals) : 18;
 
-        if (to) {
-            const exTo = await q(`SELECT name FROM exchange_addresses WHERE chain=$1 AND address=LOWER($2) AND is_active=true`, [coin.chain, to.toLowerCase()]);
-            if (exTo.rows[0]) {
-                direction = "to_exchange"; exchange_name = exTo.rows[0].name;
-            }
-        }
-        if (direction === "unknown" && from) {
-            const exFrom = await q(`SELECT name FROM exchange_addresses WHERE chain=$1 AND address=LOWER($2) AND is_active=true`, [coin.chain, from.toLowerCase()]);
-            if (exFrom.rows[0]) {
-                direction = "from_exchange"; exchange_name = exFrom.rows[0].name;
-            }
-        }
+  // Lấy 24h gần nhất
+  const now = new Date();
+  const since = new Date(now.getTime() - 24*3600*1000).toISOString();
+  // Covalent transfers_v2
+  const url = `https://api.covalenthq.com/v1/${chainId}/address/${coin.contract_address}/transfers_v2/?key=${COVALENT_KEY}&page-size=1000&starting-block=0&ending-block=latest`;
+  const r = await fetch(url, { headers: { accept: "application/json" } });
+  if (!r.ok) {
+    if (r.status === 429) { await sleep(1200); return fetchFromCovalent(coin); }
+    throw new Error(`Covalent status ${r.status}`);
+  }
+  const j = await r.json();
+  const data = j?.data?.items || [];
 
-        const isLarge = amountUsd ? amountUsd >= LARGE_USD : false;
+  let ins = 0;
+  for (const it of data) {
+    // Covalent trả nhiều tx; mỗi tx có "transfers" mảng log
+    const txHash = it?.tx_hash;
+    const bn = it?.block_height;
+    const t = it?.block_signed_at ? new Date(it.block_signed_at) : null;
+    if (!t || t.toISOString() < since) continue; // chỉ lấy 24h gần nhất
 
-        await q(
-            `INSERT INTO onchain_transfers
-       (coin_id, chain, tx_hash, from_address, to_address, amount_token, amount_usd, block_number, block_time, direction, exchange_name, is_large, source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'covalent')
-       ON CONFLICT DO NOTHING`,
-            [
-                coin.id, coin.chain || "unknown", txHash, from, to, amountToken, amountUsd,
-                it.block_height || null, ts, direction, exchange_name, isLarge
-            ]
-        );
-        inserted++;
+    const transfers = Array.isArray(it?.transfers) ? it.transfers : [];
+    for (const tr of transfers) {
+      if ((tr?.contract_address || "").toLowerCase() !== (coin.contract_address || "").toLowerCase()) continue;
+
+      const from = tr?.from_address;
+      const to   = tr?.to_address;
+      const raw  = tr?.delta ? String(tr.delta) : (tr?.value ? String(tr.value) : "0");
+      const amountToken = Number(raw) / Math.pow(10, decimals);
+
+      // ước USD: nếu không có giá thì skip large flag, vẫn lưu 0
+      const usd = px ? amountToken * Number(px) : 0;
+      const { direction, exchange_name } = directionAndName(from, to, exMap);
+      const is_large = usd >= LARGE_USD;
+
+      await insertTransfer({
+        coin_id: coin.id,
+        chain: coin.chain || "",
+        tx_hash: txHash,
+        from_address: from,
+        to_address: to,
+        amount_token: amountToken,
+        amount_usd: usd,
+        block_number: bn || null,
+        block_time: t,
+        direction,
+        exchange_name,
+        is_large,
+        source: "covalent"
+      });
+      ins++;
     }
-    return inserted;
+  }
+  return ins;
 }
 
+// ========== runners ==========
 export async function runOnchainWorker() {
-    if (!COVALENT_KEY && !ETHERSCAN_KEY) {
-        console.log("onchain_worker: no API key found -> skipped gracefully");
-        return 0;
-    }
-
-    const { rows: coins } = await q(`SELECT id, symbol, chain, contract_address, decimals FROM crypto_assets WHERE is_active=true`);
-    let total = 0;
-
-    for (const coin of coins) {
-        try {
-            if (COVALENT_KEY) {
-                total += await fetchFromCovalent(coin);
-            } else {
-                // (Tuỳ chọn) thêm fetch Etherscan ERC20 tại đây nếu cần.
-                // Hiện mình ưu tiên Covalent do multi-chain tiện hơn.
-            }
-        } catch (e) {
-            console.error(`onchain_worker: ${coin.symbol} error:`, e.message);
-        }
-    }
-    console.log(`onchain_worker: inserted ${total} transfers`);
-    return total;
-}
-
-// chạy on-chain cho 1 coin theo symbol
-export async function runOnchainForSymbol(symbol) {
-    if (!COVALENT_KEY && !ETHERSCAN_KEY) return 0;
-
-    const { rows } = await q(
-        `SELECT id, symbol, chain, contract_address, decimals
-     FROM crypto_assets
-     WHERE is_active=true AND UPPER(symbol)=UPPER($1)`,
-        [symbol]
-    );
-    if (!rows.length) return 0;
-
-    let inserted = 0;
+  const { rows: coins } = await q(
+    `SELECT id, symbol, chain, contract_address, decimals
+       FROM crypto_assets WHERE is_active=true`
+  );
+  let total = 0;
+  for (const c of coins) {
     try {
-        if (COVALENT_KEY) {
-            inserted += await fetchFromCovalent(rows[0]);
-        } else {
-            // TODO (tuỳ chọn): thêm luồng Etherscan ở đây nếu cần
-        }
+      const n = await fetchFromCovalent(c).catch(() => 0);
+      total += n;
+      await sleep(250);
     } catch (e) {
-        console.error("runOnchainForSymbol error:", e.message);
+      console.warn("onchain_worker:", c.symbol, e.message);
     }
-    return inserted;
+  }
+  return total;
 }
 
+export async function runOnchainForSymbol(symbol) {
+  const { rows } = await q(
+    `SELECT id, symbol, chain, contract_address, decimals
+       FROM crypto_assets WHERE is_active=true AND UPPER(symbol)=UPPER($1)`,
+    [symbol]
+  );
+  if (!rows.length) return 0;
+  return fetchFromCovalent(rows[0]).catch(() => 0);
+}
 
-// chạy trực tiếp
+// CLI
 if (process.argv[1] && process.argv[1].endsWith("onchain_worker.js")) {
-    runOnchainWorker().then(() => process.exit(0)).catch(() => process.exit(1));
+  runOnchainWorker().then(n => {
+    console.log("onchain_worker inserted:", n);
+    process.exit(0);
+  });
 }
