@@ -94,6 +94,9 @@ app.use("/api/workers", workersRouter);
 
 import cryptoAssetsRoute from "./routes/crypto_assets.js";
 app.use("/api/crypto-assets", cryptoAssetsRoute);
+
+import marketRouter from "./routes/market.js";
+app.use("/api/market", marketRouter);
 //================================================================================
 
 const pool = new Pool({
