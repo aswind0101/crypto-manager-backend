@@ -125,7 +125,7 @@ async function fetchFromCoingecko(coin) {
 }
 
 /* ====================== RUNNER ====================== */
-async function fetchOhlcForCoin(coin){
+export async function fetchOhlcForCoin(coin){
   // Try BINANCE first
   try {
     const nB = await fetchFromBinance(coin);

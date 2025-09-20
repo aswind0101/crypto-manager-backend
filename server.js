@@ -89,6 +89,9 @@ app.use("/api/appointments", appointmentRoutes);
 import coinsRouter from "./routes/coins.js";
 app.use("/api/coins", coinsRouter);
 
+import workersRouter from "./routes/workers.js";
+app.use("/api/workers", workersRouter);
+
 import cryptoAssetsRoute from "./routes/crypto_assets.js";
 app.use("/api/crypto-assets", cryptoAssetsRoute);
 //================================================================================
