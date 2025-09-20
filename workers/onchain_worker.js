@@ -1,153 +1,224 @@
 // backend/workers/onchain_worker.js
+// FREE on-chain via public JSON-RPC (no API key).
+// - Hỗ trợ EVM chains: Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche C.
+// - Đọc ERC-20 Transfer logs 24h gần nhất -> onchain_transfers
+// - Nếu thiếu decimals => mặc định 18 (an toàn cho ERC-20)
+// - Nếu thiếu giá 15m => amount_usd = 0 (vẫn lưu chuyển động token)
+
 import { q } from "../utils/db.js";
 
-const COVALENT_KEY = process.env.COVALENT_KEY || "";
 const LARGE_USD = Number(process.env.ONCHAIN_LARGE_USD || 100000);
 
-function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
-
-// Map chuỗi chain trong DB -> chain_id Covalent
-const COVALENT_CHAIN_ID = {
-  "ETHEREUM": 1,
-  "BSC": 56,
-  "BINANCE SMART CHAIN": 56,
-  "POLYGON": 137,
-  "MATIC": 137,
-  "ARBITRUM": 42161,
-  "OPTIMISM": 10,
-  "AVALANCHE": 43114,
-  "BASE": 8453,
+// Cho phép override RPC qua .env, nếu không có thì dùng public endpoints.
+const RPC = {
+  ETHEREUM: process.env.ETH_RPC_URL || "https://cloudflare-eth.com",
+  BSC: process.env.BSC_RPC_URL || "https://bsc-dataseed1.binance.org",
+  POLYGON: process.env.POLYGON_RPC_URL || "https://polygon-rpc.com",
+  ARBITRUM: process.env.ARBITRUM_RPC_URL || "https://arb1.arbitrum.io/rpc",
+  OPTIMISM: process.env.OPTIMISM_RPC_URL || "https://mainnet.optimism.io",
+  BASE: process.env.BASE_RPC_URL || "https://mainnet.base.org",
+  AVALANCHE: process.env.AVAX_RPC_URL || "https://api.avax.network/ext/bc/C/rpc",
 };
 
-// lấy close mới nhất 15m để ước USD
-async function latestPriceUSD(coin_id){
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ===== helpers DB =====
+async function latestPriceUSD(coin_id) {
   const { rows } = await q(
-    `SELECT close FROM price_ohlc 
-     WHERE coin_id=$1 AND timeframe='15m' 
-     ORDER BY close_time DESC LIMIT 1`,
-    [coin_id]
+    `SELECT close FROM price_ohlc
+     WHERE coin_id=$1 AND timeframe='15m'
+     ORDER BY close_time DESC LIMIT 1`, [coin_id]
   );
   return rows[0]?.close ? Number(rows[0].close) : null;
 }
-
-async function loadExchangeMap(chain){
+async function loadExchangeMap(chain) {
   const { rows } = await q(
-    `SELECT address, name, is_deposit 
-       FROM exchange_addresses
-      WHERE is_active=true AND UPPER(chain)=UPPER($1)`,
-    [chain]
+    `SELECT address, name, is_deposit
+     FROM exchange_addresses
+     WHERE is_active=true AND UPPER(chain)=UPPER($1)`, [chain]
   );
   const m = new Map();
-  for (const r of rows) m.set(r.address?.toLowerCase(), { name: r.name, is_deposit: r.is_deposit });
+  for (const r of rows) m.set((r.address || "").toLowerCase(), { name: r.name, is_deposit: r.is_deposit });
   return m;
 }
-
-function directionAndName(from, to, exchangeMap){
-  const f = exchangeMap.get((from||"").toLowerCase());
-  const t = exchangeMap.get((to  ||"").toLowerCase());
-  if (t) return { direction: "to_exchange", exchange_name: t.name };
+function directionAndName(from, to, exMap) {
+  const f = exMap.get((from || "").toLowerCase());
+  const t = exMap.get((to || "").toLowerCase());
+  if (t) return { direction: "to_exchange",   exchange_name: t.name };
   if (f) return { direction: "from_exchange", exchange_name: f.name };
   return { direction: "unknown", exchange_name: null };
 }
-
-async function insertTransfer(row){
+async function insertTransfer(row) {
   await q(
     `INSERT INTO onchain_transfers
-       (coin_id, chain, tx_hash, from_address, to_address, amount_token, amount_usd,
-        block_number, block_time, direction, exchange_name, is_large, source)
+       (coin_id, chain, tx_hash, from_address, to_address,
+        amount_token, amount_usd, block_number, block_time,
+        direction, exchange_name, is_large, source)
      VALUES
        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
      ON CONFLICT DO NOTHING`,
     [
-      row.coin_id, row.chain, row.tx_hash, row.from_address, row.to_address, row.amount_token, row.amount_usd,
-      row.block_number, row.block_time, row.direction, row.exchange_name, row.is_large, row.source
+      row.coin_id, row.chain, row.tx_hash, row.from_address, row.to_address,
+      row.amount_token, row.amount_usd, row.block_number, row.block_time,
+      row.direction, row.exchange_name, row.is_large, row.source
     ]
   );
 }
 
-// ------- Covalent (EVM ERC20) -------
-async function fetchFromCovalent(coin){
-  if (!COVALENT_KEY) return 0;
-  const chainId = COVALENT_CHAIN_ID[(coin.chain || "").toUpperCase()];
-  if (!chainId) return 0;
-  if (!coin.contract_address) return 0; // ERC20 bắt buộc có contract
+// ===== helpers RPC =====
+let rpcId = 1;
+async function rpcCall(rpcUrl, method, params = [], timeoutMs = 8000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: rpcId++, method, params }),
+      signal: ctrl.signal,
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || j.error) {
+      const msg = j?.error?.message || `HTTP ${res.status}`;
+      throw new Error(`${method} failed: ${msg}`);
+    }
+    return j.result;
+  } finally {
+    clearTimeout(t);
+  }
+}
+function hexToNumber(hex) { return Number(BigInt(hex)); }
+function hexToBigInt(hex) { return BigInt(hex); }
+function topicToAddress(topic) {
+  // topic like 0x000000000000000000000000<40hex>
+  return "0x" + String(topic).slice(-40);
+}
 
-  // lấy exchange map
+// Ước lượng số block tương ứng 24h: Lấy block latest & (latest-5k) để tính seconds/block.
+async function estimateBlocksBack(rpcUrl) {
+  const latestHex = await rpcCall(rpcUrl, "eth_blockNumber", []);
+  const latest = hexToNumber(latestHex);
+  const probe = Math.max(latest - 5000, 1);
+  const [bLatest, bProbe] = await Promise.all([
+    rpcCall(rpcUrl, "eth_getBlockByNumber", [latestHex, false]),
+    rpcCall(rpcUrl, "eth_getBlockByNumber", ["0x" + probe.toString(16), false]),
+  ]);
+  const tsLatest = hexToNumber(bLatest.timestamp);
+  const tsProbe  = hexToNumber(bProbe.timestamp);
+  const secsPerBlock = Math.max(1, (tsLatest - tsProbe) / (latest - probe));
+  const blocksPerDay = Math.floor(86400 / secsPerBlock);
+  // Giới hạn cho an toàn
+  return {
+    latest,
+    back: Math.min(Math.max(blocksPerDay * 1.2 | 0, 3000), 120000),
+  };
+}
+
+// Lấy logs theo chunks để tránh RPC lỗi (quá dài)
+async function getTransferLogsInRange(rpcUrl, address, fromBlock, toBlock, chunk = 8000) {
+  const logs = [];
+  for (let start = fromBlock; start <= toBlock; start += chunk) {
+    const end = Math.min(start + chunk - 1, toBlock);
+    const params = [{
+      fromBlock: "0x" + start.toString(16),
+      toBlock:   "0x" + end.toString(16),
+      address: address,
+      topics: ["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"] // keccak256("Transfer(address,address,uint256)")
+    }];
+    try {
+      const part = await rpcCall(rpcUrl, "eth_getLogs", params, 15000);
+      logs.push(...part);
+    } catch (e) {
+      // retry 1 lần sau nghỉ nhẹ
+      await sleep(800);
+      try {
+        const part = await rpcCall(rpcUrl, "eth_getLogs", params, 15000);
+        logs.push(...part);
+      } catch (err2) {
+        console.warn(`eth_getLogs ${start}-${end} failed:`, err2.message);
+      }
+    }
+  }
+  return logs;
+}
+
+// ===== main fetcher via RPC =====
+async function fetchFromRPC(coin) {
+  const chainKey = (coin.chain || "").toUpperCase();
+  const rpcUrl = RPC[chainKey];
+  if (!rpcUrl) return 0;                       // không hỗ trợ chain
+  if (!coin.contract_address) return 0;        // ERC-20 bắt buộc có contract
+
   const exMap = await loadExchangeMap(coin.chain || "");
-
-  // lấy giá ước tính
-  const px = await latestPriceUSD(coin.id);
-  // decimals mặc định 18 nếu không có
+  const price = await latestPriceUSD(coin.id);
   const decimals = Number.isFinite(Number(coin.decimals)) ? Number(coin.decimals) : 18;
 
-  // Lấy 24h gần nhất
-  const now = new Date();
-  const since = new Date(now.getTime() - 24*3600*1000).toISOString();
-  // Covalent transfers_v2
-  const url = `https://api.covalenthq.com/v1/${chainId}/address/${coin.contract_address}/transfers_v2/?key=${COVALENT_KEY}&page-size=1000&starting-block=0&ending-block=latest`;
-  const r = await fetch(url, { headers: { accept: "application/json" } });
-  if (!r.ok) {
-    if (r.status === 429) { await sleep(1200); return fetchFromCovalent(coin); }
-    throw new Error(`Covalent status ${r.status}`);
+  // Ước lượng khoảng block 24h
+  const { latest, back } = await estimateBlocksBack(rpcUrl);
+  const fromBlock = Math.max(1, latest - back);
+  const toBlock   = latest;
+
+  const address = coin.contract_address;
+  const logs = await getTransferLogsInRange(rpcUrl, address, fromBlock, toBlock, 8000);
+
+  // Cache timestamp theo block để giảm RPC
+  const blockTimeCache = new Map();
+  async function blockTimeOf(blockNumberHex) {
+    const n = hexToNumber(blockNumberHex);
+    if (blockTimeCache.has(n)) return blockTimeCache.get(n);
+    const blk = await rpcCall(rpcUrl, "eth_getBlockByNumber", [blockNumberHex, false]);
+    const ts = hexToNumber(blk.timestamp);
+    const d = new Date(ts * 1000);
+    blockTimeCache.set(n, d);
+    return d;
   }
-  const j = await r.json();
-  const data = j?.data?.items || [];
 
-  let ins = 0;
-  for (const it of data) {
-    // Covalent trả nhiều tx; mỗi tx có "transfers" mảng log
-    const txHash = it?.tx_hash;
-    const bn = it?.block_height;
-    const t = it?.block_signed_at ? new Date(it.block_signed_at) : null;
-    if (!t || t.toISOString() < since) continue; // chỉ lấy 24h gần nhất
+  let inserted = 0;
+  for (const log of logs) {
+    try {
+      const from = topicToAddress(log.topics[1]);
+      const to   = topicToAddress(log.topics[2]);
+      const amt  = Number(hexToBigInt(log.data)) / Math.pow(10, decimals);
 
-    const transfers = Array.isArray(it?.transfers) ? it.transfers : [];
-    for (const tr of transfers) {
-      if ((tr?.contract_address || "").toLowerCase() !== (coin.contract_address || "").toLowerCase()) continue;
-
-      const from = tr?.from_address;
-      const to   = tr?.to_address;
-      const raw  = tr?.delta ? String(tr.delta) : (tr?.value ? String(tr.value) : "0");
-      const amountToken = Number(raw) / Math.pow(10, decimals);
-
-      // ước USD: nếu không có giá thì skip large flag, vẫn lưu 0
-      const usd = px ? amountToken * Number(px) : 0;
+      const usd  = price ? amt * price : 0;
       const { direction, exchange_name } = directionAndName(from, to, exMap);
-      const is_large = usd >= LARGE_USD;
+      const blockTime = await blockTimeOf(log.blockNumber);
 
       await insertTransfer({
         coin_id: coin.id,
         chain: coin.chain || "",
-        tx_hash: txHash,
+        tx_hash: log.transactionHash,
         from_address: from,
         to_address: to,
-        amount_token: amountToken,
+        amount_token: amt,
         amount_usd: usd,
-        block_number: bn || null,
-        block_time: t,
+        block_number: hexToNumber(log.blockNumber),
+        block_time: blockTime,
         direction,
         exchange_name,
-        is_large,
-        source: "covalent"
+        is_large: usd >= LARGE_USD,
+        source: "rpc"
       });
-      ins++;
+      inserted++;
+    } catch (e) {
+      console.warn("insert log failed:", e.message);
     }
   }
-  return ins;
+  return inserted;
 }
 
-// ========== runners ==========
+// ===== runners =====
 export async function runOnchainWorker() {
   const { rows: coins } = await q(
     `SELECT id, symbol, chain, contract_address, decimals
-       FROM crypto_assets WHERE is_active=true`
+     FROM crypto_assets WHERE is_active=true`
   );
   let total = 0;
   for (const c of coins) {
     try {
-      const n = await fetchFromCovalent(c).catch(() => 0);
+      const n = await fetchFromRPC(c).catch(() => 0);
       total += n;
-      await sleep(250);
+      await sleep(200);
     } catch (e) {
       console.warn("onchain_worker:", c.symbol, e.message);
     }
@@ -158,11 +229,12 @@ export async function runOnchainWorker() {
 export async function runOnchainForSymbol(symbol) {
   const { rows } = await q(
     `SELECT id, symbol, chain, contract_address, decimals
-       FROM crypto_assets WHERE is_active=true AND UPPER(symbol)=UPPER($1)`,
+     FROM crypto_assets
+     WHERE is_active=true AND UPPER(symbol)=UPPER($1)`,
     [symbol]
   );
   if (!rows.length) return 0;
-  return fetchFromCovalent(rows[0]).catch(() => 0);
+  return fetchFromRPC(rows[0]).catch(() => 0);
 }
 
 // CLI
