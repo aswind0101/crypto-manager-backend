@@ -89,6 +89,9 @@ app.use("/api/appointments", appointmentRoutes);
 import coinsRouter from "./routes/coins.js";
 app.use("/api/coins", coinsRouter);
 
+import cryptoAssetsRoute from "./routes/crypto_assets.js";
+app.use("/api/crypto-assets", cryptoAssetsRoute);
+//================================================================================
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
