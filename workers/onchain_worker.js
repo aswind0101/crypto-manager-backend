@@ -10,28 +10,53 @@ const LARGE_USD = Number(process.env.ONCHAIN_LARGE_USD || 100000);
 
 // Cho phép override RPC qua .env, nếu không có thì dùng public endpoints.
 const RPC = {
-  ETHEREUM: process.env.ETH_RPC_URL     || "https://cloudflare-eth.com",
-  BSC:      process.env.BSC_RPC_URL     || "https://bsc-dataseed.binance.org",
-  POLYGON:  process.env.POLYGON_RPC_URL || "https://polygon-rpc.com",
-  ARBITRUM: process.env.ARBITRUM_RPC_URL|| "https://arb1.arbitrum.io/rpc",
-  OPTIMISM: process.env.OPTIMISM_RPC_URL|| "https://mainnet.optimism.io",
-  BASE:     process.env.BASE_RPC_URL    || "https://mainnet.base.org",
-  AVALANCHE:process.env.AVAX_RPC_URL    || "https://api.avax.network/ext/bc/C/rpc",
+  ETHEREUM: process.env.ETH_RPC_URL || "https://cloudflare-eth.com",
+  BSC: process.env.BSC_RPC_URL || "https://bsc-dataseed.binance.org",
+  POLYGON: process.env.POLYGON_RPC_URL || "https://polygon-rpc.com",
+  ARBITRUM: process.env.ARBITRUM_RPC_URL || "https://arb1.arbitrum.io/rpc",
+  OPTIMISM: process.env.OPTIMISM_RPC_URL || "https://mainnet.optimism.io",
+  BASE: process.env.BASE_RPC_URL || "https://mainnet.base.org",
+  AVALANCHE: process.env.AVAX_RPC_URL || "https://api.avax.network/ext/bc/C/rpc",
 };
 
-function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// === ERC-20 Transfer topic0 ===
+const ERC20_TRANSFER_TOPIC =
+  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+// 20 bytes -> 32 bytes topic
+function addrToTopic32(addr) {
+  const a = String(addr || "").trim().toLowerCase().replace(/^0x/, "");
+  return "0x" + "0".repeat(64 - a.length) + a;
+}
+
+/**
+ * Xây topics an toàn cho eth_getLogs:
+ * - luôn có topic0 = Transfer
+ * - CHỈ thêm topics[1] nếu fromList.length > 0
+ * - CHỈ thêm topics[2] nếu toList.length > 0
+ * - KHÔNG bao giờ truyền [] (vì sẽ match = 0)
+ */
+function buildTransferTopics(fromList = null, toList = null) {
+  const topics = [ERC20_TRANSFER_TOPIC];
+  if (Array.isArray(fromList) && fromList.length) topics[1] = fromList.map(addrToTopic32);
+  if (Array.isArray(toList) && toList.length)   topics[2] = toList.map(addrToTopic32);
+  return topics;
+}
 
 // ===== DB helpers =====
-async function latestPriceUSD(coin_id){
+async function latestPriceUSD(coin_id) {
   const { rows } = await q(
     `SELECT close FROM price_ohlc
-     WHERE coin_id=$1 AND timeframe='15m'
-     ORDER BY close_time DESC LIMIT 1`, [coin_id]
+       WHERE coin_id=$1 AND timeframe='15m'
+       ORDER BY close_time DESC LIMIT 1`,
+    [coin_id]
   );
   return rows[0]?.close ? Number(rows[0].close) : null;
 }
 
-async function loadExchangeMap(chain){
+async function loadExchangeMap(chain) {
   const { rows } = await q(
     `SELECT address, name, is_deposit
        FROM exchange_addresses
@@ -43,15 +68,15 @@ async function loadExchangeMap(chain){
   return m;
 }
 
-function directionAndName(from, to, exchangeMap){
-  const f = exchangeMap.get((from||"").toLowerCase());
-  const t = exchangeMap.get((to  ||"").toLowerCase());
-  if (t) return { direction: "to_exchange", exchange_name: t.name };
+function directionAndName(from, to, exchangeMap) {
+  const f = exchangeMap.get((from || "").toLowerCase());
+  const t = exchangeMap.get((to || "").toLowerCase());
+  if (t) return { direction: "to_exchange",   exchange_name: t.name };
   if (f) return { direction: "from_exchange", exchange_name: f.name };
   return { direction: "unknown", exchange_name: null };
 }
 
-async function insertTransfer(row){
+async function insertTransfer(row) {
   await q(
     `INSERT INTO onchain_transfers
        (coin_id, chain, tx_hash, from_address, to_address, amount_token, amount_usd,
@@ -70,6 +95,9 @@ async function insertTransfer(row){
 // ===== RPC helpers =====
 let rpcId = 1;
 async function rpcCall(rpcUrl, method, params = [], timeoutMs = 8000) {
+  if (!/^https?:\/\//i.test(String(rpcUrl || ""))) {
+    throw new Error(`Invalid RPC URL: ${rpcUrl}`);
+  }
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -87,6 +115,7 @@ async function rpcCall(rpcUrl, method, params = [], timeoutMs = 8000) {
     return j.result;
   } finally { clearTimeout(t); }
 }
+
 const hexToNumber = (hex) => Number(BigInt(hex));
 const hexToBigInt  = (hex) => BigInt(hex);
 const topicToAddress = (topic) => "0x" + String(topic).slice(-40);
@@ -113,11 +142,16 @@ async function estimateBlocksBack(rpcUrl) {
 }
 
 // Lấy logs theo "adaptive chunk" để né limit: thu nhỏ range khi bị từ chối
-async function getTransferLogsInRange(rpcUrl, address, fromBlock, toBlock, initChunk = 4000) {
+async function getTransferLogsInRange({
+  rpcUrl, address, fromBlock, toBlock, initChunk, fromAddresses = null, toAddresses = null
+}) {
   const MIN_CHUNK = 300;
   let chunk = initChunk;
   const logs = [];
   let start = fromBlock;
+
+  // build topics 1 lần cho mỗi slice (same filters)
+  const topics = buildTransferTopics(fromAddresses, toAddresses);
 
   while (start <= toBlock) {
     const end = Math.min(start + chunk - 1, toBlock);
@@ -125,12 +159,12 @@ async function getTransferLogsInRange(rpcUrl, address, fromBlock, toBlock, initC
       fromBlock: "0x" + start.toString(16),
       toBlock:   "0x" + end.toString(16),
       address,
-      topics: ["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"] // Transfer(address,address,uint256)
+      topics     // tối thiểu [topic0] nếu from/to rỗng
     }];
 
     try {
       const part = await rpcCall(rpcUrl, "eth_getLogs", params, 15000);
-      logs.push(...part);
+      logs.push(...(Array.isArray(part) ? part : []));
       start = end + 1;
       await sleep(250); // dịu tải
     } catch (e) {
@@ -156,19 +190,29 @@ async function getTransferLogsInRange(rpcUrl, address, fromBlock, toBlock, initC
 // ===== main fetcher via RPC =====
 async function fetchFromRPC(coin) {
   const chainKey = (coin.chain || "").toUpperCase();
-  const rpcUrl = RPC[chainKey];
+  const rpcUrl   = RPC[chainKey];
   if (!rpcUrl) return 0;                 // không hỗ trợ chain
   if (!coin.contract_address) return 0;  // ERC-20 bắt buộc có contract
 
-  const exMap = await loadExchangeMap(coin.chain || "");
-  const price = await latestPriceUSD(coin.id);
+  const exMap   = await loadExchangeMap(coin.chain || "");
+  const price   = await latestPriceUSD(coin.id);
   const decimals = Number.isFinite(Number(coin.decimals)) ? Number(coin.decimals) : 18;
 
   const { latest, back } = await estimateBlocksBack(rpcUrl);
   const fromBlock = Math.max(1, latest - back);
   const toBlock   = latest;
 
-  const logs = await getTransferLogsInRange(rpcUrl, coin.contract_address, fromBlock, toBlock, 4000);
+  // Chunk nhỏ hơn cho Ethereum để provider dễ trả về hơn
+  const initChunk = (chainKey === "ETHEREUM") ? 1000 : 4000;
+
+  // Nếu bạn muốn lọc theo danh sách địa chỉ sàn: đưa mảng vào 2 tham số dưới đây; khi rỗng => không set topics[1]/[2]
+  const fromAddresses = null;
+  const toAddresses   = null;
+
+  const logs = await getTransferLogsInRange({
+    rpcUrl, address: coin.contract_address, fromBlock, toBlock, initChunk,
+    fromAddresses, toAddresses
+  });
 
   // Cache timestamp theo block để giảm RPC
   const blockTimeCache = new Map();
@@ -176,8 +220,8 @@ async function fetchFromRPC(coin) {
     const n = hexToNumber(blockNumberHex);
     if (blockTimeCache.has(n)) return blockTimeCache.get(n);
     const blk = await rpcCall(rpcUrl, "eth_getBlockByNumber", [blockNumberHex, false]);
-    const ts = hexToNumber(blk.timestamp);
-    const d = new Date(ts * 1000);
+    const ts  = hexToNumber(blk.timestamp);
+    const d   = new Date(ts * 1000);
     blockTimeCache.set(n, d);
     return d;
   }
@@ -212,6 +256,8 @@ async function fetchFromRPC(coin) {
       console.warn("insert log failed:", e.message);
     }
   }
+
+  console.log(`onchain_worker: ${coin.symbol} ${inserted} rows inserted in ${fromBlock}-${toBlock}`);
   return inserted;
 }
 
