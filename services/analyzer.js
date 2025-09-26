@@ -226,7 +226,7 @@ export async function analyzeCoin(symbol) {
     }
   }
 
-  // === LƯU DB: BẮT BUỘC phải chứa atr + reentry_zone để FE đọc ===
+  // === LƯU DB: BẮT BUỘC phải chứa atr + reentry_zone để FE đọc ====
   const dataForDb = { px, whale, news, rsi, rsi1h, ema12, ema26, macd, atr, reentry_zone };
 
   const { rows: ins } = await q(
