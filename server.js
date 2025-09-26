@@ -18,6 +18,12 @@ const { Pool } = pkg; // ✅ Chính xác
 import verifyToken from "./middleware/verifyToken.js"; // nhớ thêm .js
 
 dotenv.config({ path: "./backend/.env" }); // hoặc ".env" nếu bạn dùng file đó
+
+// ======================= Cleanup config =======================
+const ONCHAIN_RETENTION_DAYS = Number(process.env.ONCHAIN_RETENTION_DAYS || 14);    // giữ lại 14 ngày
+const ONCHAIN_CLEANUP_BATCH = Number(process.env.ONCHAIN_CLEANUP_BATCH || 200000); // xóa theo lô 200k
+const CLEANUP_CRON_TZ = process.env.CRON_TZ || "UTC";                        // múi giờ cron (tùy chọn)
+
 // ==== server.js ====
 //const express = require("express");
 //const cors = require("cors");
@@ -495,37 +501,106 @@ app.patch("/api/coin-targets/:symbol", verifyToken, async (req, res) => {
     }
 });
 
+// ======================= Cleanup function =======================
+async function pruneOnchainTransfers(retentionDays = ONCHAIN_RETENTION_DAYS, batchSize = ONCHAIN_CLEANUP_BATCH) {
+    console.log(`[cleanup] Start: retention=${retentionDays}d, batch=${batchSize}`);
+    let total = 0;
+
+    while (true) {
+        // Xóa theo lô để lock ngắn, tránh đứng hệ thống
+        const { rows } = await pool.query(
+            `
+      WITH doomed AS (
+        SELECT ctid
+        FROM public.onchain_transfers
+        WHERE block_time < now() - ($1 || ' days')::interval
+        LIMIT $2
+      ),
+      del AS (
+        DELETE FROM public.onchain_transfers t
+        USING doomed d
+        WHERE t.ctid = d.ctid
+        RETURNING 1
+      )
+      SELECT COUNT(*)::int AS cnt FROM del;
+      `,
+            [retentionDays, batchSize]
+        );
+
+        const n = rows?.[0]?.cnt || 0;
+        if (n === 0) break;
+        total += n;
+        console.log(`[cleanup] deleted ${n} rows... (total=${total})`);
+    }
+
+    // Phân tích lại thống kê để planner chọn index tốt
+    await pool.query(`ANALYZE public.onchain_transfers;`);
+    console.log(`[cleanup] Done. Total deleted: ${total}`);
+    return total;
+}
+
+
 //============================Coins Analyzer Cron==============================================================
 
 
 if (process.env.ENABLE_INTERNAL_CRON === "true") {
-  // Chạy “warmup” ngay khi server start để có dữ liệu giá sớm
-  (async () => {
-    try { await runPriceWorker(); } catch(e){ console.error(e); }
-    try { await runOnchainWorker(); } catch(e){ console.error(e); } // không có API key sẽ skip
-    try { await runNewsWorker(); } catch(e){ console.error(e); }    // không có API key sẽ skip
-  })();
+    // Chạy “warmup” ngay khi server start để có dữ liệu giá sớm
+    (async () => {
+        try { await runPriceWorker(); } catch (e) { console.error(e); }
+        try { await runOnchainWorker(); } catch (e) { console.error(e); } // không có API key sẽ skip
+        try { await runNewsWorker(); } catch (e) { console.error(e); }    // không có API key sẽ skip
+    })();
 
-  // Lịch định kỳ
-  cron.schedule("*/5 * * * *", async () => {
-    console.log("CRON: fetching price & on-chain ...");
-    try { await runPriceWorker(); } catch(e){ console.error(e); }
-    try { await runOnchainWorker(); } catch(e){ console.error(e); }
-  });
+    // Lịch định kỳ
+    cron.schedule("*/5 * * * *", async () => {
+        console.log("CRON: fetching price & on-chain ...");
+        try { await runPriceWorker(); } catch (e) { console.error(e); }
+        try { await runOnchainWorker(); } catch (e) { console.error(e); }
+    });
 
-  cron.schedule("*/15 * * * *", async () => {
-    console.log("CRON: fetching news ...");
-    try { await runNewsWorker(); } catch(e){ console.error(e); }
-  });
+    cron.schedule("*/15 * * * *", async () => {
+        console.log("CRON: fetching news ...");
+        try { await runNewsWorker(); } catch (e) { console.error(e); }
+    });
 
-  console.log("✅ Internal cron enabled");
+    // Cleanup onchain_transfers hằng ngày lúc 03:20 (theo CLEANUP_CRON_TZ)
+    cron.schedule(
+        "20 3 * * *",
+        async () => {
+            console.log("CRON: pruning onchain_transfers ...");
+            try {
+                const deleted = await pruneOnchainTransfers();
+                console.log(`CRON: pruned ${deleted} rows older than ${ONCHAIN_RETENTION_DAYS}d`);
+            } catch (e) {
+                console.error("CRON: cleanup error:", e);
+            }
+        },
+        { timezone: CLEANUP_CRON_TZ }
+    );
+
+    console.log("✅ Internal cron enabled");
 }
+
 //============================Coins Analyzer Functions======================================
 
 // Health check
 app.get("/", (req, res) => {
     res.send("Crypto Manager API is running...");
 });
+
+// 🔐 Tùy bạn: có thể bọc verifyToken/admin guard trước khi mở public
+app.post("/api/admin/cleanup-onchain", async (req, res) => {
+    try {
+        const days = Number(req.query.days || ONCHAIN_RETENTION_DAYS);
+        const batch = Number(req.query.batch || ONCHAIN_CLEANUP_BATCH);
+        const deleted = await pruneOnchainTransfers(days, batch);
+        res.json({ ok: true, deleted, retention_days: days, batch });
+    } catch (e) {
+        console.error("manual cleanup error:", e);
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server is running on http://localhost:${PORT}`);
