@@ -10,9 +10,18 @@ const LARGE_USD = Number(process.env.ONCHAIN_LARGE_USD || 100000);
 const ONCHAIN_WINDOW_HOURS = Number(process.env.ONCHAIN_WINDOW_HOURS || 12);
 
 // ---- NEAR ----
-const NEAR_RPC_URL = process.env.NEAR_RPC_URL || "https://rpc.mainnet.near.org";
 const NEAR_BLOCKS_PER_HOUR = Number(process.env.NEAR_BLOCKS_PER_HOUR || 3600);
-const NEAR_MAX_BLOCK_BACK = Number(process.env.NEAR_MAX_BLOCK_BACK || 20000);
+const NEAR_MAX_BLOCK_BACK  = Number(process.env.NEAR_MAX_BLOCK_BACK  || 20000);
+
+// Hỗ trợ xoay vòng nhiều RPC, ví dụ: rpc.mainnet.near.org, FastNEAR, hoặc nhà cung cấp khác.
+// ENV ví dụ:
+// NEAR_RPC_POOL=https://rpc.mainnet.near.org,https://YOUR_FASTNEAR_RPC,https://YOUR_OTHER_NEAR_RPC
+const NEAR_RPC_POOL = (process.env.NEAR_RPC_POOL || process.env.NEAR_RPC_URL || "https://rpc.mainnet.near.org")
+  .split(",")
+  .map(s => s.trim())
+  .filter(Boolean);
+
+let __nearRpcIndex = 0;
 
 // ---- EVM (để dành cho các chain khác) ----
 const RPC = {
@@ -131,11 +140,50 @@ function nearHeaderToDate(header) {
   const ns = header?.timestamp_nanosec ?? header?.timestamp;
   try { return new Date(Number(BigInt(ns) / 1000000n)); } catch { return new Date(); }
 }
-async function nearGetLatestBlock() { return rpcCall(NEAR_RPC_URL, "block", { finality: "final" }); }
-async function nearGetBlockByHeight(h) { return rpcCall(NEAR_RPC_URL, "block", { block_id: h }); }
+
+// Gọi RPC NEAR có xoay vòng endpoint + backoff khi bị limit/deprecated
+async function rpcCallNEAR(method, params, timeoutMs = 15000) {
+  const maxAttempts = Math.max(NEAR_RPC_POOL.length * 2, 2);
+  let lastErr = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const rpcUrl = NEAR_RPC_POOL[__nearRpcIndex % NEAR_RPC_POOL.length];
+    __nearRpcIndex++;
+
+    try {
+      return await rpcCall(rpcUrl, method, params, timeoutMs);
+    } catch (e) {
+      lastErr = e;
+      const msg = String(e.message || "").toLowerCase();
+
+      const isRate =
+        msg.includes("rate") ||
+        msg.includes("limit") ||
+        msg.includes("too many") ||
+        msg.includes("deprecated") ||
+        msg.includes("exceeded");
+
+      const isHttp429 = msg.includes("http 429");
+      const is5xx     = msg.includes("http 5");
+
+      if (isRate || isHttp429 || is5xx) {
+        const delay = 300 + 200 * attempt;
+        console.warn(`NEAR RPC warn (${rpcUrl}): ${e.message}. Backoff ${delay}ms & rotate.`);
+        await sleep(delay);
+        continue;
+      }
+      // lỗi khác (params/format) → dừng
+      throw e;
+    }
+  }
+  throw lastErr || new Error("All NEAR RPC endpoints failed");
+}
+
+async function nearGetLatestBlock() { return rpcCallNEAR("block", { finality: "final" }); }
+async function nearGetBlockByHeight(h) { return rpcCallNEAR("block", { block_id: h }); }
 async function nearGetChunk(ch) {
-  try { return await rpcCall(NEAR_RPC_URL, "chunk", [ch]); }
-  catch { return await rpcCall(NEAR_RPC_URL, "chunk", { chunk_id: ch }); }
+  try { return await rpcCallNEAR("chunk", [ch]); }
+  catch { return await rpcCallNEAR("chunk", { chunk_id: ch }); }
 }
 
 /**
@@ -176,7 +224,14 @@ async function fetchFromNEAR(coin) {
 
     let block;
     try { block = await nearGetBlockByHeight(h); }
-    catch (e) { console.warn("NEAR block fail:", h, e.message); continue; }
+    catch (e) {
+      console.warn("NEAR block fail:", h, e.message);
+      const msg = String(e.message || "").toLowerCase();
+      if (msg.includes("rate") || msg.includes("limit") || msg.includes("deprecated")) {
+        await sleep(400);
+      }
+      continue;
+    }
 
     const blockTime = nearHeaderToDate(block?.header);
     const chunks = Array.isArray(block?.chunks) ? block.chunks : [];
@@ -187,7 +242,14 @@ async function fetchFromNEAR(coin) {
 
       let chunk;
       try { chunk = await nearGetChunk(hash); }
-      catch (e) { console.warn("NEAR chunk fail:", String(hash).slice(0, 8), e.message); continue; }
+      catch (e) {
+        console.warn("NEAR chunk fail:", String(hash).slice(0, 8), e.message);
+        const msg = String(e.message || "").toLowerCase();
+        if (msg.includes("rate") || msg.includes("limit") || msg.includes("deprecated")) {
+          await sleep(300);
+        }
+        continue;
+      }
 
       const txs = Array.isArray(chunk?.transactions) ? chunk.transactions : [];
       for (const tx of txs) {
