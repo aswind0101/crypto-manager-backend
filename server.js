@@ -248,7 +248,7 @@ app.post("/api/transactions", verifyToken, async (req, res) => {
             [coin_symbol, quantity, price, transaction_type, userId, isReset]
         );
 
-        res.status(201).json(result.rows[0]);
+        res.status(201).json(insertResult.rows[0]);
     } catch (error) {
         console.error("Error adding transaction:", error);
         res.status(500).json({ error: "Internal Server Error" });
