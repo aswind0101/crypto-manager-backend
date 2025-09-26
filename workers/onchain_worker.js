@@ -3,7 +3,7 @@
 // - Lưu vào onchain_transfers (unique: coin_id, tx_hash, log_index)
 // - Có cursor DB để không quét trùng; bộ lọc giảm rác; giới hạn rows/mỗi lần chạy.
 
-import { q } from "./db.js";
+import { q } from "../utils/db.js";
 
 // =========================== CẤU HÌNH ==============================
 const LARGE_USD = Number(process.env.ONCHAIN_LARGE_USD || 100000);
