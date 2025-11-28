@@ -4,24 +4,57 @@ import axios from "axios";
 
 const router = express.Router();
 
+// Có thể đổi sang process.env.BYBIT_BASE nếu muốn cấu hình linh hoạt
 const BYBIT_BASE = "https://api.bybit.com";
 
+/**
+ * Gọi Bybit với axios, có log chi tiết lỗi (status, body)
+ */
 async function getFromBybit(path, params = {}) {
-    const url = new URL(path, BYBIT_BASE);
+    try {
+        const url = new URL(path, BYBIT_BASE);
 
-    Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-            url.searchParams.append(key, String(value));
+        Object.entries(params).forEach(([key, value]) => {
+            if (value !== undefined && value !== null) {
+                url.searchParams.append(key, String(value));
+            }
+        });
+
+        // Thêm User-Agent cho chắc ăn
+        const { data } = await axios.get(url.toString(), {
+            timeout: 10000,
+            headers: {
+                "User-Agent": "onetool-btc-trending/1.0"
+            }
+        });
+
+        if (data.retCode !== 0) {
+            console.error("Bybit retCode error:", data.retCode, data.retMsg);
+            throw new Error(`Bybit retCode ${data.retCode}: ${data.retMsg}`);
         }
-    });
 
-    const { data } = await axios.get(url.toString(), { timeout: 10000 });
+        return data.result || {};
+    } catch (error) {
+        // Nếu Bybit trả HTTP error (403, 404, 5xx...)
+        if (error.response) {
+            console.error("Bybit HTTP error:", {
+                status: error.response.status,
+                statusText: error.response.statusText,
+                data: error.response.data,
+                url: error.config?.url,
+            });
 
-    if (data.retCode !== 0) {
-        throw new Error(`Bybit API error ${data.retCode}: ${data.retMsg}`);
+            // Ném error rõ ràng hơn để Express trả ra cho mình xem
+            throw new Error(
+                `Bybit HTTP ${error.response.status} ${error.response.statusText}: ` +
+                `${JSON.stringify(error.response.data)}`
+            );
+        }
+
+        // Lỗi khác (timeout, network,...)
+        console.error("Bybit request error:", error.message || error);
+        throw new Error(error.message || "Unknown Bybit request error");
     }
-
-    return data.result || {};
 }
 
 // =============== Helpers gọi từng loại dữ liệu ===============
@@ -134,7 +167,6 @@ router.get("/snapshot", async (req, res) => {
 
         const generatedAt = Date.now();
 
-        // Có thể dùng Promise.all để nhanh hơn
         const symbolsData = [];
         for (const sym of symbols) {
             const data = await collectSymbolData(sym);
