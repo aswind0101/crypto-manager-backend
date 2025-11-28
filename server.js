@@ -105,6 +105,11 @@ import marketRouter from "./routes/market.js";
 app.use("/api/market", marketRouter);
 //================================================================================
 
+//===============================Bybit Data=================================================
+import bybitSnapshotRouter from "./routes/bybitSnapshot.js";
+app.use("/api/bybit", bybitSnapshotRouter);
+
+
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
