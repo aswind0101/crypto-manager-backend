@@ -146,26 +146,7 @@ async function collectSymbolData(symbol) {
     };
 }
 
-// =============== Stub cho on-chain & global derivatives v2 ===============
-
-async function fetchOnchainData() {
-    // Phase 1: chưa nối API on-chain nên để rỗng
-    return {
-        exchange_netflow_daily: [],
-        whale_exchange_flows: []
-    };
-}
-
-async function fetchGlobalDerivatives() {
-    // Phase 1: stub – sau nối API sẽ fill dữ liệu thật
-    return {
-        total_oi: [],
-        funding_mean: [],
-        estimated_leverage_ratio: []
-    };
-}
-
-// =============== Route chính: /api/bybit/snapshot (v2) ===============
+// =============== Route chính: /api/bybit/snapshot ===============
 
 // GET /api/bybit/snapshot?symbols=BTCUSDT,ETHUSDT,SOLUSDT
 router.get("/snapshot", async (req, res) => {
@@ -192,23 +173,11 @@ router.get("/snapshot", async (req, res) => {
             symbolsData.push(data);
         }
 
-        // Lấy stub onchain & global derivatives song song
-        const [onchain, globalDerivatives] = await Promise.all([
-            fetchOnchainData(),
-            fetchGlobalDerivatives()
-        ]);
-
         const payload = {
-            version: 2,
+            exchange: "bybit",
+            category: "linear",
             generated_at: generatedAt,
-            per_exchange: {
-                bybit: {
-                    category: "linear",
-                    symbols: symbolsData,
-                },
-            },
-            onchain,
-            global_derivatives: globalDerivatives,
+            symbols: symbolsData,
         };
 
         return res.json(payload);
