@@ -148,21 +148,168 @@ async function collectSymbolData(symbol) {
 
 // =============== Stub cho on-chain & global derivatives v2 ===============
 
+const GLASSNODE_API_KEY = process.env.GLASSNODE_API_KEY;
+
 async function fetchOnchainData() {
-    // Phase 1: chưa nối API on-chain nên để rỗng
-    return {
-        exchange_netflow_daily: [],
-        whale_exchange_flows: []
-    };
+    // Nếu chưa cấu hình API key, trả rỗng nhưng không làm hỏng snapshot
+    if (!GLASSNODE_API_KEY) {
+        console.warn("GLASSNODE_API_KEY is not set, onchain data will be empty.");
+        return {
+            exchange_netflow_daily: [],
+            whale_exchange_flows: [],
+        };
+    }
+
+    const base = "https://api.glassnode.com/v1/metrics";
+
+    try {
+        // 1) Net position change trên sàn (proxy cho netflow dài hạn)
+        const netflowRes = await axios.get(
+            `${base}/distribution/exchange_net_position_change`,
+            {
+                params: {
+                    api_key: GLASSNODE_API_KEY, // bắt buộc
+                    a: "BTC",                   // asset
+                    i: "24h",                   // interval daily
+                    // s, u: since / until (unix sec) – có thể thêm sau nếu muốn giới hạn thời gian
+                },
+            }
+        );
+
+        // 2) Tổng BTC trên tất cả sàn
+        const balanceRes = await axios.get(
+            `${base}/distribution/balance_exchanges_all`,
+            {
+                params: {
+                    api_key: GLASSNODE_API_KEY,
+                    a: "BTC",
+                    i: "24h",
+                },
+            }
+        );
+
+        // Glassnode trả về dạng [{ t: unix_sec, v: value }, ...]
+        const netflowMap = new Map();
+        for (const point of netflowRes.data || []) {
+            netflowMap.set(point.t, point.v);
+        }
+
+        const balanceMap = new Map();
+        for (const point of balanceRes.data || []) {
+            balanceMap.set(point.t, point.v);
+        }
+
+        // Gộp theo timestamp
+        const allTimestamps = Array.from(
+            new Set([...netflowMap.keys(), ...balanceMap.keys()])
+        ).sort((a, b) => a - b);
+
+        const exchange_netflow_daily = allTimestamps.map((t) => ({
+            // nhân 1000 để về ms cho đồng bộ với bybit_snapshot
+            t: t * 1000,
+            netflow_btc: netflowMap.get(t) ?? null,
+            balance_btc: balanceMap.get(t) ?? null,
+        }));
+
+        // Whale flows – phase 1: để rỗng hoặc sau này bạn có thể dùng thêm metric khác
+        const whale_exchange_flows = [];
+
+        return {
+            exchange_netflow_daily,
+            whale_exchange_flows,
+        };
+    } catch (err) {
+        console.error("fetchOnchainData error:", err.response?.data || err.message);
+        return {
+            exchange_netflow_daily: [],
+            whale_exchange_flows: [],
+        };
+    }
 }
+const COINGLASS_API_KEY = process.env.COINGLASS_API_KEY;
 
 async function fetchGlobalDerivatives() {
-    // Phase 1: stub – sau nối API sẽ fill dữ liệu thật
-    return {
-        total_oi: [],
-        funding_mean: [],
-        estimated_leverage_ratio: []
+    if (!COINGLASS_API_KEY) {
+        console.warn("COINGLASS_API_KEY is not set, global_derivatives will be empty.");
+        return {
+            total_oi: [],
+            funding_mean: [],
+            estimated_leverage_ratio: [],
+        };
+    }
+
+    // Tùy docs, header có thể là 'coinglassSecret' hoặc 'CG-API-KEY'
+    // Bạn check lại phần "Credentials / Header" trong docs CoinGlass rồi chỉnh đúng.
+    const headers = {
+        accept: "application/json",
+        "CG-API-KEY": COINGLASS_API_KEY,
+        // hoặc: "coinglassSecret": COINGLASS_API_KEY,
     };
+
+    try {
+        // 1) Lấy OI tổng hợp tất cả sàn cho BTC
+        const oiRes = await axios.get(
+            "https://open-api-v4.coinglass.com/api/futures/open-interest/exchange-list",
+            {
+                params: { symbol: "BTC" },
+                headers,
+            }
+        );
+
+        const oiData = oiRes.data?.data || [];
+        const agg = oiData.find((d) => d.exchange === "All");
+
+        const now = Date.now();
+        const total_oi = agg
+            ? [
+                {
+                    t: now,
+                    oi_usd: agg.open_interest_usd,
+                    oi_quantity: agg.open_interest_quantity,
+                },
+            ]
+            : [];
+
+        // 2) Funding rate history cho BTC (dạng OHLC)
+        const frRes = await axios.get(
+            "https://open-api-v4.coinglass.com/api/futures/funding-rate/history",
+            {
+                // ⚠️ Các params cụ thể (symbol, pair, interval) bạn xem lại trong docs
+                // ví dụ dạng: { symbol: "BTC", interval: "8h" }
+                params: {
+                    symbol: "BTC",
+                    interval: "8h",
+                },
+                headers,
+            }
+        );
+
+        const frList = frRes.data?.data || [];
+        const funding_mean = frList.map((c) => ({
+            t: c.time, // ms
+            funding_open: Number(c.open),
+            funding_high: Number(c.high),
+            funding_low: Number(c.low),
+            funding_close: Number(c.close),
+        }));
+
+        // 3) estimated_leverage_ratio – phase 1: để rỗng,
+        // hoặc bạn có thể tự tính sau này: OI notional / market cap, v.v.
+        const estimated_leverage_ratio = [];
+
+        return {
+            total_oi,
+            funding_mean,
+            estimated_leverage_ratio,
+        };
+    } catch (err) {
+        console.error("fetchGlobalDerivatives error:", err.response?.data || err.message);
+        return {
+            total_oi: [],
+            funding_mean: [],
+            estimated_leverage_ratio: [],
+        };
+    }
 }
 
 // =============== Route chính: /api/bybit/snapshot (v2) ===============
