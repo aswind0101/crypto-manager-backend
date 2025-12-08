@@ -156,7 +156,7 @@ const DUNE_QUERY_ID_EXCHANGE_NETFLOW_BTC =
 const DUNE_QUERY_ID_WHALE_FLOWS_BTC =
   process.env.DUNE_QUERY_ID_WHALE_FLOWS_BTC || "";
 
-const DUNE_BASE = "https://api.dune.com/api/v1";
+const DUNE_BASE = "https://api.dune.com/api/v1/"; 
 
 // Chuẩn hoá timestamp về ms
 function normalizeToMs(value) {
@@ -183,7 +183,7 @@ async function getFromDune(queryId, params = {}) {
   }
 
   try {
-    const url = new URL(`/query/${queryId}/results`, DUNE_BASE);
+     const url = new URL(`query/${queryId}/results`, DUNE_BASE); 
 
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
