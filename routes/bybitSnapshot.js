@@ -189,7 +189,7 @@ function normalizeToMs(value) {
     return null;
 }
 
-// Gọi Dune, trả về rows (hỗ trợ param {{asset}} qua request body)
+// Gọi Dune bằng flow execute -> get result, có hỗ trợ query params ({{asset}})
 async function getFromDune(queryId, params = {}) {
     if (!DUNE_API_KEY) {
         console.warn("[Dune] DUNE_API_KEY is not set – onchain will be empty.");
@@ -201,13 +201,15 @@ async function getFromDune(queryId, params = {}) {
     }
 
     try {
-        const url = new URL(`query/${queryId}/results`, DUNE_BASE);
+        // 1) Execute query với query_parameters
+        const execUrl = new URL(`query/${queryId}/execute`, DUNE_BASE);
 
-        // Theo docs Dune: param {{asset}} phải được gửi trong body JSON
-        // ví dụ: { "asset": "LINK" }
-        const body = { ...params };
+        const execBody = {
+            query_parameters: params, // ví dụ: { asset: "LINK" }
+            // có thể thêm performance: "medium" | "large" nếu muốn
+        };
 
-        const { data } = await axios.post(url.toString(), body, {
+        const execRes = await axios.post(execUrl.toString(), execBody, {
             timeout: 15000,
             headers: {
                 "X-Dune-Api-Key": DUNE_API_KEY,
@@ -215,14 +217,62 @@ async function getFromDune(queryId, params = {}) {
             },
         });
 
-        const rows =
-            (data.result && data.result.rows) ||
-            (data.data && data.data.rows) ||
-            data.rows ||
-            [];
+        const executionId =
+            execRes.data.execution_id ||
+            execRes.data.executionId ||
+            execRes.data.id;
 
-        if (!Array.isArray(rows)) return [];
-        return rows;
+        if (!executionId) {
+            console.error("[Dune] execute response không có execution_id:", execRes.data);
+            return [];
+        }
+
+        // 2) Poll kết quả qua /execution/{execution_id}/results
+        const maxAttempts = 10;
+        const delayMs = 1000;
+
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const resultUrl = new URL(
+                `execution/${executionId}/results`,
+                DUNE_BASE
+            );
+
+            const { data } = await axios.get(resultUrl.toString(), {
+                timeout: 15000,
+                headers: {
+                    "X-Dune-Api-Key": DUNE_API_KEY,
+                },
+            });
+
+            const state =
+                data.state ||
+                data.execution_state ||
+                data.status ||
+                "";
+
+            const rows =
+                (data.result && data.result.rows) ||
+                (data.data && data.data.rows) ||
+                data.rows ||
+                [];
+
+            if (state === "QUERY_STATE_COMPLETED" || state === "completed") {
+                return Array.isArray(rows) ? rows : [];
+            }
+
+            if (state === "QUERY_STATE_FAILED" || state === "failed") {
+                console.error("[Dune] execution failed:", data);
+                return [];
+            }
+
+            // Nếu vẫn pending thì chờ một chút rồi thử lại
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+
+        console.warn(
+            "[Dune] execution timeout, không lấy được kết quả trong giới hạn poll"
+        );
+        return [];
     } catch (err) {
         console.error(
             "[Dune] getFromDune error:",
