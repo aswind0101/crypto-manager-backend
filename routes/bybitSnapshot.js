@@ -189,8 +189,12 @@ function normalizeToMs(value) {
     return null;
 }
 
-// Gọi Dune bằng flow execute -> get result, có hỗ trợ query params ({{asset}})
-async function getFromDune(queryId, params = {}) {
+// Gọi Dune bằng flow execute -> poll kết quả, có hỗ trợ query params ({{asset}})
+async function getFromDune(
+    queryId,
+    params = {},
+    options = {}
+) {
     if (!DUNE_API_KEY) {
         console.warn("[Dune] DUNE_API_KEY is not set – onchain will be empty.");
         return [];
@@ -200,13 +204,16 @@ async function getFromDune(queryId, params = {}) {
         return [];
     }
 
+    // Có thể custom theo từng loại query
+    const maxAttempts = options.maxAttempts ?? 30;   // mặc định: poll tối đa 30 lần
+    const delayMs = options.delayMs ?? 2000;         // mỗi lần cách nhau 2s  -> ~60s
+
     try {
         // 1) Execute query với query_parameters
         const execUrl = new URL(`query/${queryId}/execute`, DUNE_BASE);
 
         const execBody = {
             query_parameters: params, // ví dụ: { asset: "LINK" }
-            // có thể thêm performance: "medium" | "large" nếu muốn
         };
 
         const execRes = await axios.post(execUrl.toString(), execBody, {
@@ -228,9 +235,6 @@ async function getFromDune(queryId, params = {}) {
         }
 
         // 2) Poll kết quả qua /execution/{execution_id}/results
-        const maxAttempts = 10;
-        const delayMs = 1000;
-
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             const resultUrl = new URL(
                 `execution/${executionId}/results`,
@@ -288,13 +292,13 @@ async function getFromDune(queryId, params = {}) {
 async function fetchExchangeNetflowDailyFromDune(asset = "BTC") {
     if (!DUNE_QUERY_ID_EXCHANGE_NETFLOW_BTC) return [];
 
-    // Luôn chuẩn hóa về base symbol (BTC, ETH, LINK...)
-    const base = normalizeToBaseAsset(asset);
+    const base = normalizeToBaseAsset(asset);        // LINKUSDT -> LINK
 
-    // Gửi base vào param {{asset}} trên Dune
-    const rows = await getFromDune(DUNE_QUERY_ID_EXCHANGE_NETFLOW_BTC, {
-        asset: base.toUpperCase(),
-    });
+    const rows = await getFromDune(
+        DUNE_QUERY_ID_EXCHANGE_NETFLOW_BTC,
+        { asset: base.toUpperCase() },              // {{asset}} = 'LINK'
+        { maxAttempts: 20, delayMs: 1500 }          // netflow thường nhẹ hơn
+    );
 
     return (rows || [])
         .map((r) => {
@@ -305,7 +309,7 @@ async function fetchExchangeNetflowDailyFromDune(asset = "BTC") {
                 (r.asset || r.token_symbol || base).toString().toUpperCase();
 
             return {
-                asset: sym, // thường sẽ là LINK trong trường hợp của bạn
+                asset: sym,
                 t,
                 netflow: Number(r.netflow ?? r.value ?? 0),
                 netflow_usd: Number(r.netflow_usd ?? 0),
@@ -324,9 +328,11 @@ async function fetchWhaleExchangeFlowsFromDune(asset = "BTC") {
 
     const base = normalizeToBaseAsset(asset);
 
-    const rows = await getFromDune(DUNE_QUERY_ID_WHALE_FLOWS_BTC, {
-        asset: base.toUpperCase(),
-    });
+    const rows = await getFromDune(
+        DUNE_QUERY_ID_WHALE_FLOWS_BTC,
+        { asset: base.toUpperCase() },
+        { maxAttempts: 40, delayMs: 2000 }          // cho whale nhiều thời gian hơn
+    );
 
     return (rows || [])
         .map((r) => {
@@ -352,7 +358,7 @@ async function fetchWhaleExchangeFlowsFromDune(asset = "BTC") {
             return {
                 asset: sym,
                 t,
-                direction, // "deposit" | "withdraw" | "net"
+                direction,
                 exchange:
                     r.exchange || r.to_exchange || r.from_exchange || "all",
                 amount,
