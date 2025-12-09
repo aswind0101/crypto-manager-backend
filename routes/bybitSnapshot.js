@@ -289,13 +289,16 @@ async function getFromDune(
 }
 
 async function fetchOnchainFromDuneCombined(asset = "BTC") {
-    if (!DUNE_QUERY_ID_ONCHAIN_COMBINED) return {
-        exchange_netflow_daily: [],
-        whale_exchange_flows: [],
-        whale_summary: {},
-    };
+    // Nếu chưa cấu hình ID query gộp thì trả rỗng
+    if (!DUNE_QUERY_ID_ONCHAIN_COMBINED) {
+        return {
+            exchange_netflow_daily: [],
+            whale_exchange_flows: [],
+            whale_summary: {},
+        };
+    }
 
-    const base = normalizeToBaseAsset(asset); // LINKUSDT -> LINK
+    const base = normalizeToBaseAsset(asset); // Ví dụ: LINKUSDT -> LINK
 
     const rows = await getFromDune(
         DUNE_QUERY_ID_ONCHAIN_COMBINED,
@@ -314,6 +317,7 @@ async function fetchOnchainFromDuneCombined(asset = "BTC") {
 
         const assetSym = (r.asset || base).toString().toUpperCase();
 
+        // ----- NETFLOW DAILY -----
         if (rowType === "netflow_daily") {
             exchangeNetflow.push({
                 asset: assetSym,
@@ -323,12 +327,14 @@ async function fetchOnchainFromDuneCombined(asset = "BTC") {
                 exchange: "all",
                 source: "dune",
             });
-        } else if (rowType === "whale_flow") {
+        }
+
+        // ----- WHALE FLOWS -----
+        else if (rowType === "whale_flow") {
             const amountUsd = Number(r.amount_usd ?? 0);
             if (!Number.isFinite(amountUsd) || amountUsd <= 0) continue;
 
-            exchangeName =
-                (r.exchange || "all").toString();
+            const exchangeName = String(r.exchange ?? "all");
 
             whaleFlows.push({
                 asset: assetSym,
@@ -338,8 +344,7 @@ async function fetchOnchainFromDuneCombined(asset = "BTC") {
                 amount: Number(r.amount ?? 0),
                 amount_usd: amountUsd,
                 tx_count: r.tx_count != null ? Number(r.tx_count) : null,
-                avg_tx_size:
-                    r.avg_tx_size != null ? Number(r.avg_tx_size) : null,
+                avg_tx_size: r.avg_tx_size != null ? Number(r.avg_tx_size) : null,
                 source: "dune",
             });
         }
