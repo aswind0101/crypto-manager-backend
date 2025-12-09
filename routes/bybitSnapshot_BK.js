@@ -7,6 +7,24 @@ const router = express.Router();
 // Có thể đổi sang process.env.BYBIT_BASE nếu muốn cấu hình linh hoạt
 const BYBIT_BASE = "https://api.bybit.com";
 
+// Chuẩn hóa input (BTC, BTCUSDT, ETHUSDT...) về base asset (BTC, ETH, LINK...)
+function normalizeToBaseAsset(value = "BTC") {
+    const raw = value.toString().toUpperCase().trim();
+    if (!raw) return "BTC";
+
+    // Một số hậu tố phổ biến trên perp
+    const suffixes = ["USDT", "USDC", "BUSD", "USD", "PERP"];
+
+    for (const suf of suffixes) {
+        if (raw.endsWith(suf) && raw.length > suf.length + 1) {
+            return raw.slice(0, -suf.length);
+        }
+    }
+
+    // Nếu không khớp hậu tố nào -> coi như đã là asset (BTC, ETH, LINK...)
+    return raw;
+}
+
 /**
  * Gọi Bybit với axios, có log chi tiết lỗi (status, body)
  */
@@ -148,84 +166,274 @@ async function collectSymbolData(symbol) {
 
 // =============== Stub cho on-chain & global derivatives v2 ===============
 
-const GLASSNODE_API_KEY = process.env.GLASSNODE_API_KEY;
+// =============== On-chain via Dune ===============
 
-async function fetchOnchainData() {
-    // Nếu chưa cấu hình API key, trả rỗng nhưng không làm hỏng snapshot
-    if (!GLASSNODE_API_KEY) {
-        console.warn("GLASSNODE_API_KEY is not set, onchain data will be empty.");
+const DUNE_API_KEY = process.env.DUNE_API_KEY || "";
+const DUNE_QUERY_ID_EXCHANGE_NETFLOW_BTC =
+    process.env.DUNE_QUERY_ID_EXCHANGE_NETFLOW_BTC || "";
+const DUNE_QUERY_ID_WHALE_FLOWS_BTC =
+    process.env.DUNE_QUERY_ID_WHALE_FLOWS_BTC || "";
+
+const DUNE_BASE = "https://api.dune.com/api/v1/";
+
+// Chuẩn hoá timestamp về ms
+function normalizeToMs(value) {
+    if (value == null) return null;
+    const num = Number(value);
+    if (Number.isFinite(num)) {
+        if (num > 1e11) return num;      // đã là ms
+        if (num > 0) return num * 1000;  // seconds -> ms
+    }
+    const d = new Date(value);
+    if (!isNaN(d.getTime())) return d.getTime();
+    return null;
+}
+
+// Gọi Dune bằng flow execute -> poll kết quả, có hỗ trợ query params ({{asset}})
+async function getFromDune(
+    queryId,
+    params = {},
+    options = {}
+) {
+    if (!DUNE_API_KEY) {
+        console.warn("[Dune] DUNE_API_KEY is not set – onchain will be empty.");
+        return [];
+    }
+    if (!queryId) {
+        console.warn("[Dune] Missing queryId – onchain will be empty.");
+        return [];
+    }
+
+    // Có thể custom theo từng loại query
+    const maxAttempts = options.maxAttempts ?? 30;   // mặc định: poll tối đa 30 lần
+    const delayMs = options.delayMs ?? 2000;         // mỗi lần cách nhau 2s  -> ~60s
+
+    try {
+        // 1) Execute query với query_parameters
+        const execUrl = new URL(`query/${queryId}/execute`, DUNE_BASE);
+
+        const execBody = {
+            query_parameters: params, // ví dụ: { asset: "LINK" }
+        };
+
+        const execRes = await axios.post(execUrl.toString(), execBody, {
+            timeout: 15000,
+            headers: {
+                "X-Dune-Api-Key": DUNE_API_KEY,
+                "Content-Type": "application/json",
+            },
+        });
+
+        const executionId =
+            execRes.data.execution_id ||
+            execRes.data.executionId ||
+            execRes.data.id;
+
+        if (!executionId) {
+            console.error("[Dune] execute response không có execution_id:", execRes.data);
+            return [];
+        }
+
+        // 2) Poll kết quả qua /execution/{execution_id}/results
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const resultUrl = new URL(
+                `execution/${executionId}/results`,
+                DUNE_BASE
+            );
+
+            const { data } = await axios.get(resultUrl.toString(), {
+                timeout: 15000,
+                headers: {
+                    "X-Dune-Api-Key": DUNE_API_KEY,
+                },
+            });
+
+            const state =
+                data.state ||
+                data.execution_state ||
+                data.status ||
+                "";
+
+            const rows =
+                (data.result && data.result.rows) ||
+                (data.data && data.data.rows) ||
+                data.rows ||
+                [];
+
+            if (state === "QUERY_STATE_COMPLETED" || state === "completed") {
+                return Array.isArray(rows) ? rows : [];
+            }
+
+            if (state === "QUERY_STATE_FAILED" || state === "failed") {
+                console.error("[Dune] execution failed:", data);
+                return [];
+            }
+
+            // Nếu vẫn pending thì chờ một chút rồi thử lại
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+
+        console.warn(
+            "[Dune] execution timeout, không lấy được kết quả trong giới hạn poll"
+        );
+        return [];
+    } catch (err) {
+        console.error(
+            "[Dune] getFromDune error:",
+            err.response?.data || err.message || err
+        );
+        return [];
+    }
+}
+
+
+// Netflow daily (all CEX) cho 1 asset từ query cex_netflow_daily_by_asset
+// PARAM trên Dune: {{asset}} (text)
+async function fetchExchangeNetflowDailyFromDune(asset = "BTC") {
+    if (!DUNE_QUERY_ID_EXCHANGE_NETFLOW_BTC) return [];
+
+    const base = normalizeToBaseAsset(asset);        // LINKUSDT -> LINK
+
+    const rows = await getFromDune(
+        DUNE_QUERY_ID_EXCHANGE_NETFLOW_BTC,
+        { asset: base.toUpperCase() },              // {{asset}} = 'LINK'
+        { maxAttempts: 20, delayMs: 1500 }          // netflow thường nhẹ hơn
+    );
+
+    return (rows || [])
+        .map((r) => {
+            const t = normalizeToMs(r.t || r.time || r.day);
+            if (!t) return null;
+
+            const sym =
+                (r.asset || r.token_symbol || base).toString().toUpperCase();
+
+            return {
+                asset: sym,
+                t,
+                netflow: Number(r.netflow ?? r.value ?? 0),
+                netflow_usd: Number(r.netflow_usd ?? 0),
+                exchange: "all",
+                source: "dune",
+            };
+        })
+        .filter(Boolean);
+}
+
+
+// Whale flows cho 1 asset từ query cex_whale_exchange_flows_by_asset
+// PARAM trên Dune: {{asset}} (text)
+async function fetchWhaleExchangeFlowsFromDune(asset = "BTC") {
+    if (!DUNE_QUERY_ID_WHALE_FLOWS_BTC) return [];
+
+    const base = normalizeToBaseAsset(asset);
+
+    const rows = await getFromDune(
+        DUNE_QUERY_ID_WHALE_FLOWS_BTC,
+        { asset: base.toUpperCase() },
+        { maxAttempts: 40, delayMs: 2000 }          // cho whale nhiều thời gian hơn
+    );
+
+    return (rows || [])
+        .map((r) => {
+            const t = normalizeToMs(r.t || r.time || r.day);
+            const amount = Number(r.amount ?? r.volume ?? r.value ?? 0);
+            if (!t || !Number.isFinite(amount) || amount <= 0) return null;
+
+            const sym =
+                (r.asset || r.token_symbol || base).toString().toUpperCase();
+
+            let direction = (r.direction || "").toLowerCase();
+            if (!direction) {
+                if (r.to_exchange) direction = "deposit";
+                else if (r.from_exchange) direction = "withdraw";
+                else direction = "net";
+            }
+
+            const txCount =
+                r.tx_count != null ? Number(r.tx_count) : null;
+            const avgTx =
+                r.avg_tx_size != null ? Number(r.avg_tx_size) : null;
+
+            return {
+                asset: sym,
+                t,
+                direction,
+                exchange:
+                    r.exchange || r.to_exchange || r.from_exchange || "all",
+                amount,
+                amount_usd: Number(r.amount_usd ?? 0),
+                tx_count: Number.isFinite(txCount) ? txCount : null,
+                avg_tx_size: Number.isFinite(avgTx) ? avgTx : null,
+                source: "dune",
+            };
+        })
+        .filter(Boolean);
+}
+
+
+// Tóm tắt whale flow theo 24h / 3d / 7d
+function buildWhaleSummary(whaleRows = []) {
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    function sumPeriod(days) {
+        const from = now - days * dayMs;
+        const rows = whaleRows.filter((r) => r.t >= from);
+
+        let deposit = 0;
+        let withdraw = 0;
+        let txCount = 0;
+
+        for (const r of rows) {
+            if (r.direction === "deposit") deposit += r.amount;
+            if (r.direction === "withdraw") withdraw += r.amount;
+            txCount += r.tx_count || 0;
+        }
+
         return {
-            exchange_netflow_daily: [],
-            whale_exchange_flows: [],
+            deposit,
+            withdraw,
+            netflow: withdraw - deposit,
+            tx_count: txCount,
         };
     }
 
-    const base = "https://api.glassnode.com/v1/metrics";
+    return {
+        "24h": sumPeriod(1),
+        "3d": sumPeriod(3),
+        "7d": sumPeriod(7),
+    };
+}
 
+
+// Hàm chính build block onchain cho 1 asset
+async function fetchOnchainData(asset = "BTC") {
     try {
-        // 1) Net position change trên sàn (proxy cho netflow dài hạn)
-        const netflowRes = await axios.get(
-            `${base}/distribution/exchange_net_position_change`,
-            {
-                params: {
-                    api_key: GLASSNODE_API_KEY, // bắt buộc
-                    a: "BTC",                   // asset
-                    i: "24h",                   // interval daily
-                    // s, u: since / until (unix sec) – có thể thêm sau nếu muốn giới hạn thời gian
-                },
-            }
-        );
-
-        // 2) Tổng BTC trên tất cả sàn
-        const balanceRes = await axios.get(
-            `${base}/distribution/balance_exchanges_all`,
-            {
-                params: {
-                    api_key: GLASSNODE_API_KEY,
-                    a: "BTC",
-                    i: "24h",
-                },
-            }
-        );
-
-        // Glassnode trả về dạng [{ t: unix_sec, v: value }, ...]
-        const netflowMap = new Map();
-        for (const point of netflowRes.data || []) {
-            netflowMap.set(point.t, point.v);
-        }
-
-        const balanceMap = new Map();
-        for (const point of balanceRes.data || []) {
-            balanceMap.set(point.t, point.v);
-        }
-
-        // Gộp theo timestamp
-        const allTimestamps = Array.from(
-            new Set([...netflowMap.keys(), ...balanceMap.keys()])
-        ).sort((a, b) => a - b);
-
-        const exchange_netflow_daily = allTimestamps.map((t) => ({
-            // nhân 1000 để về ms cho đồng bộ với bybit_snapshot
-            t: t * 1000,
-            netflow_btc: netflowMap.get(t) ?? null,
-            balance_btc: balanceMap.get(t) ?? null,
-        }));
-
-        // Whale flows – phase 1: để rỗng hoặc sau này bạn có thể dùng thêm metric khác
-        const whale_exchange_flows = [];
+        const [netflow, whaleFlows] = await Promise.all([
+            fetchExchangeNetflowDailyFromDune(asset),
+            fetchWhaleExchangeFlowsFromDune(asset),
+        ]);
 
         return {
-            exchange_netflow_daily,
-            whale_exchange_flows,
+            exchange_netflow_daily: netflow || [],
+            whale_exchange_flows: whaleFlows || [],
+            whale_summary: buildWhaleSummary(whaleFlows || []),
         };
     } catch (err) {
-        console.error("fetchOnchainData error:", err.response?.data || err.message);
+        console.error(
+            "fetchOnchainData (Dune) error:",
+            err.response?.data || err.message || err
+        );
         return {
             exchange_netflow_daily: [],
             whale_exchange_flows: [],
+            whale_summary: {},
         };
     }
 }
+
+
 const COINGLASS_API_KEY = process.env.COINGLASS_API_KEY;
 
 async function fetchGlobalDerivatives() {
@@ -362,6 +570,42 @@ router.get("/snapshot", async (req, res) => {
     } catch (err) {
         console.error("Error in /api/bybit/snapshot:", err.message || err);
         return res.status(500).json({ error: err.message || "Internal Server Error" });
+    }
+});
+
+// =============== Route phụ: /api/bybit/onchain?asset=BTC ===============
+
+// =============== Route phụ: /api/bybit/onchain ===============
+// Hỗ trợ:
+//   /api/bybit/onchain?asset=BTC
+//   /api/bybit/onchain?asset=BTCUSDT
+//   /api/bybit/onchain?symbol=LINKUSDT
+
+// Hỗ trợ:
+//   /api/bybit/onchain?asset=BTC
+//   /api/bybit/onchain?asset=BTCUSDT
+//   /api/bybit/onchain?symbol=LINKUSDT
+router.get("/onchain", async (req, res) => {
+    try {
+        const rawInput = (
+            req.query.asset ||
+            req.query.symbol ||
+            "BTC"
+        ).toString().trim();
+
+        // Không normalize sang base nữa, giữ nguyên giá trị client gửi lên
+        const assetOrSymbol = rawInput || "BTC";
+
+        const onchain = await fetchOnchainData(assetOrSymbol);
+
+        return res.json(onchain);
+    } catch (err) {
+        console.error("Error in /api/bybit/onchain:", err.message || err);
+        return res.status(500).json({
+            exchange_netflow_daily: [],
+            whale_exchange_flows: [],
+            error: err.message || "Internal Server Error",
+        });
     }
 });
 

@@ -167,6 +167,8 @@ async function collectSymbolData(symbol) {
 // =============== Stub cho on-chain & global derivatives v2 ===============
 
 // =============== On-chain via Dune ===============
+const DUNE_QUERY_ID_ONCHAIN_COMBINED =
+    process.env.DUNE_QUERY_ID_ONCHAIN_COMBINED || "";
 
 const DUNE_API_KEY = process.env.DUNE_API_KEY || "";
 const DUNE_QUERY_ID_EXCHANGE_NETFLOW_BTC =
@@ -284,6 +286,70 @@ async function getFromDune(
         );
         return [];
     }
+}
+
+async function fetchOnchainFromDuneCombined(asset = "BTC") {
+    if (!DUNE_QUERY_ID_ONCHAIN_COMBINED) return {
+        exchange_netflow_daily: [],
+        whale_exchange_flows: [],
+        whale_summary: {},
+    };
+
+    const base = normalizeToBaseAsset(asset); // LINKUSDT -> LINK
+
+    const rows = await getFromDune(
+        DUNE_QUERY_ID_ONCHAIN_COMBINED,
+        { asset: base.toUpperCase() },
+        { maxAttempts: 30, delayMs: 2000 }
+    );
+
+    const exchangeNetflow = [];
+    const whaleFlows = [];
+
+    for (const r of rows || []) {
+        const rowType = (r.row_type || r.rowType || "").toString().toLowerCase();
+        const t = normalizeToMs(r.t);
+
+        if (!t) continue;
+
+        const assetSym = (r.asset || base).toString().toUpperCase();
+
+        if (rowType === "netflow_daily") {
+            exchangeNetflow.push({
+                asset: assetSym,
+                t,
+                netflow: Number(r.netflow ?? 0),
+                netflow_usd: Number(r.netflow_usd ?? 0),
+                exchange: "all",
+                source: "dune",
+            });
+        } else if (rowType === "whale_flow") {
+            const amountUsd = Number(r.amount_usd ?? 0);
+            if (!Number.isFinite(amountUsd) || amountUsd <= 0) continue;
+
+            exchangeName =
+                (r.exchange || "all").toString();
+
+            whaleFlows.push({
+                asset: assetSym,
+                t,
+                direction: (r.direction || "").toLowerCase(),
+                exchange: exchangeName,
+                amount: Number(r.amount ?? 0),
+                amount_usd: amountUsd,
+                tx_count: r.tx_count != null ? Number(r.tx_count) : null,
+                avg_tx_size:
+                    r.avg_tx_size != null ? Number(r.avg_tx_size) : null,
+                source: "dune",
+            });
+        }
+    }
+
+    return {
+        exchange_netflow_daily: exchangeNetflow,
+        whale_exchange_flows: whaleFlows,
+        whale_summary: buildWhaleSummary(whaleFlows),
+    };
 }
 
 
@@ -407,22 +473,12 @@ function buildWhaleSummary(whaleRows = []) {
 }
 
 
-// Hàm chính build block onchain cho 1 asset
 async function fetchOnchainData(asset = "BTC") {
     try {
-        const [netflow, whaleFlows] = await Promise.all([
-            fetchExchangeNetflowDailyFromDune(asset),
-            fetchWhaleExchangeFlowsFromDune(asset),
-        ]);
-
-        return {
-            exchange_netflow_daily: netflow || [],
-            whale_exchange_flows: whaleFlows || [],
-            whale_summary: buildWhaleSummary(whaleFlows || []),
-        };
+        return await fetchOnchainFromDuneCombined(asset);
     } catch (err) {
         console.error(
-            "fetchOnchainData (Dune) error:",
+            "fetchOnchainData (Dune combined) error:",
             err.response?.data || err.message || err
         );
         return {
@@ -432,6 +488,7 @@ async function fetchOnchainData(asset = "BTC") {
         };
     }
 }
+
 
 
 const COINGLASS_API_KEY = process.env.COINGLASS_API_KEY;
