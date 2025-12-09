@@ -284,14 +284,15 @@ async function getFromDune(queryId, params = {}) {
 
 
 // Netflow daily (all CEX) cho 1 asset từ query cex_netflow_daily_by_asset
+// PARAM trên Dune: {{asset}} (text)
 async function fetchExchangeNetflowDailyFromDune(asset = "BTC") {
     if (!DUNE_QUERY_ID_EXCHANGE_NETFLOW_BTC) return [];
 
-    const base = normalizeToBaseAsset(asset);
+    // Không cắt USDT nữa – dùng đúng string client gửi lên (BTC, ETH, LINK, LINKUSDT…)
+    const assetParam = asset.toString().toUpperCase().trim();
 
-    // Gọi Dune với param asset (trùng tên {{asset}} trong query)
     const rows = await getFromDune(DUNE_QUERY_ID_EXCHANGE_NETFLOW_BTC, {
-        asset: base.toUpperCase(),
+        asset: assetParam,
     });
 
     return (rows || [])
@@ -300,7 +301,7 @@ async function fetchExchangeNetflowDailyFromDune(asset = "BTC") {
             if (!t) return null;
 
             const sym =
-                (r.asset || r.token_symbol || base).toString().toUpperCase();
+                (r.asset || r.token_symbol || assetParam).toString().toUpperCase();
 
             return {
                 asset: sym,
@@ -314,16 +315,15 @@ async function fetchExchangeNetflowDailyFromDune(asset = "BTC") {
         .filter(Boolean);
 }
 
-
-
 // Whale flows cho 1 asset từ query cex_whale_exchange_flows_by_asset
+// PARAM trên Dune: {{asset}} (text)
 async function fetchWhaleExchangeFlowsFromDune(asset = "BTC") {
     if (!DUNE_QUERY_ID_WHALE_FLOWS_BTC) return [];
 
-    const base = normalizeToBaseAsset(asset);
+    const assetParam = asset.toString().toUpperCase().trim();
 
     const rows = await getFromDune(DUNE_QUERY_ID_WHALE_FLOWS_BTC, {
-        asset: base.toUpperCase(),
+        asset: assetParam,
     });
 
     return (rows || [])
@@ -333,7 +333,7 @@ async function fetchWhaleExchangeFlowsFromDune(asset = "BTC") {
             if (!t || !Number.isFinite(amount) || amount <= 0) return null;
 
             const sym =
-                (r.asset || r.token_symbol || base).toString().toUpperCase();
+                (r.asset || r.token_symbol || assetParam).toString().toUpperCase();
 
             let direction = (r.direction || "").toLowerCase();
             if (!direction) {
@@ -362,7 +362,6 @@ async function fetchWhaleExchangeFlowsFromDune(asset = "BTC") {
         })
         .filter(Boolean);
 }
-
 
 // Tóm tắt whale flow theo 24h / 3d / 7d
 function buildWhaleSummary(whaleRows = []) {
@@ -573,17 +572,22 @@ router.get("/snapshot", async (req, res) => {
 //   /api/bybit/onchain?asset=BTCUSDT
 //   /api/bybit/onchain?symbol=LINKUSDT
 
+// Hỗ trợ:
+//   /api/bybit/onchain?asset=BTC
+//   /api/bybit/onchain?asset=BTCUSDT
+//   /api/bybit/onchain?symbol=LINKUSDT
 router.get("/onchain", async (req, res) => {
     try {
         const rawInput = (
             req.query.asset ||
             req.query.symbol ||
             "BTC"
-        ).toString();
+        ).toString().trim();
 
-        const asset = normalizeToBaseAsset(rawInput);
+        // Không normalize sang base nữa, giữ nguyên giá trị client gửi lên
+        const assetOrSymbol = rawInput || "BTC";
 
-        const onchain = await fetchOnchainData(asset);
+        const onchain = await fetchOnchainData(assetOrSymbol);
 
         return res.json(onchain);
     } catch (err) {
