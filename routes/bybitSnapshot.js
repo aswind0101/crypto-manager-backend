@@ -215,26 +215,25 @@ async function getFromDune(queryId, params = {}) {
     }
 }
 
-// Netflow daily (all CEX, per asset) từ view cex_netflow_daily_by_asset
+// Netflow daily (all CEX) cho 1 asset từ query cex_netflow_daily_by_asset
 async function fetchExchangeNetflowDailyFromDune(asset = "BTC") {
     if (!DUNE_QUERY_ID_EXCHANGE_NETFLOW_BTC) return [];
 
-    // View này đã trả sẵn mọi asset, mình lọc lại theo asset trên backend
-    const rows = await getFromDune(DUNE_QUERY_ID_EXCHANGE_NETFLOW_BTC);
+    // Gọi Dune với param asset (trùng tên {{asset}} trong query)
+    const rows = await getFromDune(DUNE_QUERY_ID_EXCHANGE_NETFLOW_BTC, {
+        asset: asset.toUpperCase(),
+    });
 
-    return rows
-        .filter(
-            (r) =>
-                (r.asset || r.token_symbol || "")
-                    .toString()
-                    .toUpperCase() === asset.toUpperCase()
-        )
+    return (rows || [])
         .map((r) => {
             const t = normalizeToMs(r.t || r.time || r.day);
             if (!t) return null;
 
+            const sym =
+                (r.asset || r.token_symbol || asset).toString().toUpperCase();
+
             return {
-                asset,
+                asset: sym,
                 t,
                 netflow: Number(r.netflow ?? r.value ?? 0),
                 netflow_usd: Number(r.netflow_usd ?? 0),
@@ -245,23 +244,23 @@ async function fetchExchangeNetflowDailyFromDune(asset = "BTC") {
         .filter(Boolean);
 }
 
-// Whale flows (deposit/withdraw lên sàn) từ view cex_whale_exchange_flows_by_asset
+
+// Whale flows cho 1 asset từ query cex_whale_exchange_flows_by_asset
 async function fetchWhaleExchangeFlowsFromDune(asset = "BTC") {
     if (!DUNE_QUERY_ID_WHALE_FLOWS_BTC) return [];
 
-    const rows = await getFromDune(DUNE_QUERY_ID_WHALE_FLOWS_BTC);
+    const rows = await getFromDune(DUNE_QUERY_ID_WHALE_FLOWS_BTC, {
+        asset: asset.toUpperCase(),
+    });
 
-    return rows
-        .filter(
-            (r) =>
-                (r.asset || r.token_symbol || "")
-                    .toString()
-                    .toUpperCase() === asset.toUpperCase()
-        )
+    return (rows || [])
         .map((r) => {
             const t = normalizeToMs(r.t || r.time || r.day);
             const amount = Number(r.amount ?? r.volume ?? r.value ?? 0);
             if (!t || !Number.isFinite(amount) || amount <= 0) return null;
+
+            const sym =
+                (r.asset || r.token_symbol || asset).toString().toUpperCase();
 
             let direction = (r.direction || "").toLowerCase();
             if (!direction) {
@@ -276,7 +275,7 @@ async function fetchWhaleExchangeFlowsFromDune(asset = "BTC") {
                 r.avg_tx_size != null ? Number(r.avg_tx_size) : null;
 
             return {
-                asset,
+                asset: sym,
                 t,
                 direction, // "deposit" | "withdraw" | "net"
                 exchange:
