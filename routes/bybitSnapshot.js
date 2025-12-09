@@ -189,7 +189,7 @@ function normalizeToMs(value) {
     return null;
 }
 
-// Gọi Dune, trả về rows
+// Gọi Dune, trả về rows (hỗ trợ param {{asset}} qua request body)
 async function getFromDune(queryId, params = {}) {
     if (!DUNE_API_KEY) {
         console.warn("[Dune] DUNE_API_KEY is not set – onchain will be empty.");
@@ -203,16 +203,15 @@ async function getFromDune(queryId, params = {}) {
     try {
         const url = new URL(`query/${queryId}/results`, DUNE_BASE);
 
-        Object.entries(params).forEach(([key, value]) => {
-            if (value !== undefined && value !== null) {
-                url.searchParams.append(key, String(value));
-            }
-        });
+        // Theo docs Dune: param {{asset}} phải được gửi trong body JSON
+        // ví dụ: { "asset": "LINK" }
+        const body = { ...params };
 
-        const { data } = await axios.get(url.toString(), {
+        const { data } = await axios.post(url.toString(), body, {
             timeout: 15000,
             headers: {
                 "X-Dune-Api-Key": DUNE_API_KEY,
+                "Content-Type": "application/json",
             },
         });
 
@@ -232,6 +231,7 @@ async function getFromDune(queryId, params = {}) {
         return [];
     }
 }
+
 
 // Netflow daily (all CEX) cho 1 asset từ query cex_netflow_daily_by_asset
 async function fetchExchangeNetflowDailyFromDune(asset = "BTC") {
