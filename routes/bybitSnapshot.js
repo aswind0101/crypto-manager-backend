@@ -343,10 +343,9 @@ async function fetchOnchainFromDuneCombined(asset = "BTC") {
                 exchange: exchangeName,
                 amount: Number(r.amount ?? 0),
                 amount_usd: amountUsd,
-                tx_count: r.tx_count != null ? Number(r.tx_count) : null,
-                avg_tx_size: r.avg_tx_size != null ? Number(r.avg_tx_size) : null,
                 source: "dune",
             });
+
         }
     }
 
