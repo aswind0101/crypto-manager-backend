@@ -207,16 +207,18 @@ async function getFromDune(
     }
 
     // Có thể custom theo từng loại query
-    const maxAttempts = options.maxAttempts ?? 30;   // mặc định: poll tối đa 30 lần
-    const delayMs = options.delayMs ?? 2000;         // mỗi lần cách nhau 2s  -> ~60s
+    const maxAttempts = options.maxAttempts ?? 60;   // 60 × 2s = 120 giây
+    const delayMs = options.delayMs ?? 2000;
 
     try {
         // 1) Execute query với query_parameters
         const execUrl = new URL(`query/${queryId}/execute`, DUNE_BASE);
 
         const execBody = {
-            query_parameters: params, // ví dụ: { asset: "LINK" }
+            query_parameters: params,
+            performance: "medium",   // CHỌN ENGINE CHUẨN CHO ONCHAIN
         };
+
 
         const execRes = await axios.post(execUrl.toString(), execBody, {
             timeout: 15000,
@@ -303,7 +305,11 @@ async function fetchOnchainFromDuneCombined(asset = "BTC") {
     const rows = await getFromDune(
         DUNE_QUERY_ID_ONCHAIN_COMBINED,
         { asset: base.toUpperCase() },
-        { maxAttempts: 30, delayMs: 2000 }
+        {
+            maxAttempts: 60,     // tăng thời gian sống của execution
+            delayMs: 2000,
+            performance: "medium",
+        }
     );
 
     const exchangeNetflow = [];
