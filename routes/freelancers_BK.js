@@ -20,7 +20,7 @@ const pool = new Pool({
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 🌐 Multer: phân thư mục theo URL
+// 🌐 Multer: phân thư mục theo URL.
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         let dir = "uploads/avatars";
