@@ -307,8 +307,7 @@ async function fetchOnchainFromDuneCombined(asset = "BTC") {
         { asset: base.toUpperCase() },
         {
             maxAttempts: 60,     // tăng thời gian sống của execution
-            delayMs: 2000,
-            performance: "medium",
+            delayMs: 2000
         }
     );
 
