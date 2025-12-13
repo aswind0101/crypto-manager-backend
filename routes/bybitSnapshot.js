@@ -26,7 +26,7 @@ function normalizeToBaseAsset(value = "BTC") {
 }
 
 /**
- * Gọi Bybit với axios, có log chi tiết lỗi (status, body)
+ * Gọi Bybit với axios, có log chi tiết lỗi (status, body);
  */
 async function getFromBybit(path, params = {}) {
     try {
