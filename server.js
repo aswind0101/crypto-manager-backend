@@ -109,6 +109,10 @@ app.use("/api/market", marketRouter);
 import bybitSnapshotRouter from "./routes/bybitSnapshot.js";
 app.use("/api/bybit", bybitSnapshotRouter);
 
+//========================NEW TRADING ENGINE===================================
+import tradeZonesRoute from "./routes/tradeZones.js";
+app.use("/api/trade-zones", tradeZonesRoute);
+
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
