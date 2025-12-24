@@ -116,6 +116,9 @@ app.use("/api/trade-zones", tradeZonesRoute);
 import tradeZonesClientRoute from "./routes/tradeZonesClient.js";
 app.use("/api/trade-zones-client", tradeZonesClientRoute);
 
+import tradeZonesClientMultiTFRoute from "./routes/tradeZonesClientMultiTF.js";
+app.use("/api/trade-zones-client-multitf", tradeZonesClientMultiTFRoute);
+
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
