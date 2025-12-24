@@ -155,25 +155,13 @@ function emaStackLabel(ema20, ema50, ema100, ema200) {
 }
 function trendState({ close, ema20, ema50, rsi, atr }) {
     if (close != null && ema20 != null && ema50 != null && rsi != null && atr != null) {
-        const nearEma20 = Math.abs(close - ema20) < 0.5 * atr;
-
-        // Đo "độ tách" giữa EMA20 và EMA50 để phân biệt trend vs range
-        const emaSep = Math.abs(ema20 - ema50);
-        const tightMAs = emaSep < 0.25 * atr; // MA dính nhau => dễ range
-
-        // Trend (giữ nguyên yêu cầu cấu trúc giá/EMA)
+        const nearEma = Math.abs(close - ema20) < 0.5 * atr;
         if (close > ema20 && ema20 > ema50 && rsi >= 55) return "bull";
-
-        // Nới nhẹ bear RSI để tránh kẹt "range" khi EMA đã bear rõ
-        // (Nếu bạn muốn giữ cực strict thì đổi 50 -> 45)
-        if (close < ema20 && ema20 < ema50 && rsi <= 50) return "bear";
-
-        // Range chỉ khi: giá quanh EMA20 + RSI trung tính + MA dính nhau
-        if (nearEma20 && rsi >= 45 && rsi <= 55 && tightMAs) return "range";
+        if (close < ema20 && ema20 < ema50 && rsi <= 45) return "bear";
+        if (nearEma && rsi >= 45 && rsi <= 55) return "range";
     }
     return "neutral";
 }
-
 function volatilityRegime(atr, close) {
     if (!Number.isFinite(atr) || !Number.isFinite(close) || close <= 0) return "normal";
     const pct = atr / close;
@@ -210,10 +198,15 @@ function tierScore(t) {
 
 /** ---------- Context resolver ---------- */
 function resolveContext(htfRegime, ltfRegime) {
-    if ((htfRegime === "bull" && ltfRegime === "bull") || (htfRegime === "bear" && ltfRegime === "bear")) return "trend";
-    if (htfRegime === "bull" && (ltfRegime === "bear" || ltfRegime === "neutral")) return "pullback";
-    if (htfRegime === "bear" && (ltfRegime === "bull" || ltfRegime === "neutral")) return "pullback";
+    // SPEC: "range" context chỉ khi HTF là range
     if (htfRegime === "range") return "range";
+
+    // SPEC: trend khi HTF & LTF aligned bull/bear
+    if ((htfRegime === "bull" && ltfRegime === "bull") || (htfRegime === "bear" && ltfRegime === "bear")) return "trend";
+
+    // SPEC: các trường hợp còn lại dưới HTF bull/bear => pullback (trend-only sẽ không trade)
+    if (htfRegime === "bull" || htfRegime === "bear") return "pullback";
+
     return "range";
 }
 
