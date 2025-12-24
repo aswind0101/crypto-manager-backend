@@ -253,8 +253,6 @@ function applyM5Timing({ confidence, guards, direction, m5Regime }) {
     }
     return { confidence, guards };
 }
-
-/** ---------- Zone builders (SPEC style) ---------- */
 /** ---------- Order readiness helpers (SPEC-aligned) ---------- */
 function mid(low, high) {
     return (low + high) / 2;
@@ -282,10 +280,7 @@ function evalRetestTriggers({ direction, close, zone, ema20, vp }) {
             vp?.vah != null &&
             close < ema20 &&
             close < vp.vah;
-        const ema50Dist = Number.isFinite(ema50) ? Math.abs(ema50 - vp.vah) : null;
-        const ema50DistAtr = ema50Dist != null && Number.isFinite(atr) ? ema50Dist / atr : null;
-        const ema50AnchorUsed = ema50DistAtr != null ? ema50DistAtr <= 1.5 : false; // guard: EMA50 gần VAH trong 1.5 ATR
-        const center = ema50AnchorUsed ? Math.max(vp.vah, ema50) : vp.vah;
+    } else {
         closeConfirm =
             Number.isFinite(close) &&
             Number.isFinite(ema20) &&
@@ -354,10 +349,7 @@ function buildEntryPlan({ close, zone, status, into, closeConfirm }) {
         };
     }
 
-        const ema50Dist = Number.isFinite(ema50) ? Math.abs(ema50 - vp.val) : null;
-        const ema50DistAtr = ema50Dist != null && Number.isFinite(atr) ? ema50Dist / atr : null;
-        const ema50AnchorUsed = ema50DistAtr != null ? ema50DistAtr <= 1.5 : false; // guard: EMA50 gần VAL trong 1.5 ATR
-        const center = ema50AnchorUsed ? Math.min(vp.val, ema50) : vp.val;
+    // price in zone but not confirmed
     return {
         entry_now: false,
         order_type: "wait",
@@ -384,6 +376,8 @@ function buildEntryValidity({ close, atr, zone, expiresAt, kFar = 2.0 }) {
         is_valid: far === "ok",
     };
 }
+
+/** ---------- Zone builders (SPEC style) ---------- */
 function buildRetestSupplyDemand({
     symbol,
     tfLabel,
@@ -411,7 +405,11 @@ function buildRetestSupplyDemand({
 
     if (direction === "short") {
         // supply zone centered near max(VAH, EMA50) in downtrend
-        const center = Math.max(vp.vah, ema50 ?? vp.vah);
+        const ema50Dist = Number.isFinite(ema50) ? Math.abs(ema50 - vp.vah) : null;
+        const ema50DistAtr = ema50Dist != null && Number.isFinite(atr) ? ema50Dist / atr : null;
+        const ema50AnchorUsed = ema50DistAtr != null ? ema50DistAtr <= 1.5 : false; // guard: EMA50 gần VAH trong 1.5 ATR
+        const center = ema50AnchorUsed ? Math.max(vp.vah, ema50) : vp.vah;
+
         const low = center - buffer;
         const high = center + buffer;
 
@@ -431,7 +429,6 @@ function buildRetestSupplyDemand({
             (volReg === "high" ? -10 : 0);
 
         ({ confidence } = applyM5Timing({ confidence, guards, direction: "short", m5Regime }));
-
         const trig = evalRetestTriggers({ direction: "short", close, zone: { low, high }, ema20, vp });
         const entry = buildEntryPlan({ close, zone: { low, high }, status: trig.status, into: trig.into, closeConfirm: trig.closeConfirm });
         const entry_validity = buildEntryValidity({
@@ -497,7 +494,11 @@ function buildRetestSupplyDemand({
         });
     } else {
         // demand zone centered near min(VAL, EMA50) in uptrend
-        const center = Math.min(vp.val, ema50 ?? vp.val);
+        const ema50Dist = Number.isFinite(ema50) ? Math.abs(ema50 - vp.val) : null;
+        const ema50DistAtr = ema50Dist != null && Number.isFinite(atr) ? ema50Dist / atr : null;
+        const ema50AnchorUsed = ema50DistAtr != null ? ema50DistAtr <= 1.5 : false; // guard: EMA50 gần VAL trong 1.5 ATR
+        const center = ema50AnchorUsed ? Math.min(vp.val, ema50) : vp.val;
+
         const low = center - buffer;
         const high = center + buffer;
 
@@ -517,7 +518,6 @@ function buildRetestSupplyDemand({
             (volReg === "high" ? -10 : 0);
 
         ({ confidence } = applyM5Timing({ confidence, guards, direction: "long", m5Regime }));
-
         const trig = evalRetestTriggers({ direction: "long", close, zone: { low, high }, ema20, vp });
         const entry = buildEntryPlan({ close, zone: { low, high }, status: trig.status, into: trig.into, closeConfirm: trig.closeConfirm });
         const entry_validity = buildEntryValidity({
@@ -566,10 +566,10 @@ function buildRetestSupplyDemand({
                 facts: {
                     close,
                     atr,
-                    ema50AnchorUsed,
-                    ema50DistAtr,
                     ema20: ema20 ?? null,
                     ema50: ema50 ?? null,
+                    ema50AnchorUsed,
+                    ema50DistAtr,
                     val: vp.val,
                     poc: vp.poc,
                     vah: vp.vah,
@@ -634,7 +634,6 @@ function buildFadePOCorEMA20({
             (volReg === "high" ? -10 : 0);
 
         ({ confidence } = applyM5Timing({ confidence, guards, direction: "short", m5Regime }));
-
         const trig = evalFadeTriggers({ direction: "short", close, zone: { low, high }, ema20, vp });
         const entry = buildEntryPlan({ close, zone: { low, high }, status: trig.status, into: trig.into, closeConfirm: trig.closeConfirm });
         const entry_validity = buildEntryValidity({
@@ -690,15 +689,6 @@ function buildFadePOCorEMA20({
 
         const t1 = vp.vah;
         const t2 = Number.isFinite(swing?.lastHigh) ? swing.lastHigh : vp.vah;
-        const trig = evalFadeTriggers({ direction: "long", close, zone: { low, high }, ema20, vp });
-        const entry = buildEntryPlan({ close, zone: { low, high }, status: trig.status, into: trig.into, closeConfirm: trig.closeConfirm });
-        const entry_validity = buildEntryValidity({
-            close,
-            atr,
-            zone: { low, high },
-            expiresAt: Date.now() + 90 * 60 * 1000,
-        });
-
 
         const rr1 = rrForLong(entryRef, stop, t1);
         const rr2 = rrForLong(entryRef, stop, t2);
@@ -710,6 +700,14 @@ function buildFadePOCorEMA20({
             (volReg === "high" ? -10 : 0);
 
         ({ confidence } = applyM5Timing({ confidence, guards, direction: "long", m5Regime }));
+        const trig = evalFadeTriggers({ direction: "long", close, zone: { low, high }, ema20, vp });
+        const entry = buildEntryPlan({ close, zone: { low, high }, status: trig.status, into: trig.into, closeConfirm: trig.closeConfirm });
+        const entry_validity = buildEntryValidity({
+            close,
+            atr,
+            zone: { low, high },
+            expiresAt: Date.now() + 90 * 60 * 1000,
+        });
 
         zones.push({
             id: hashId(`${symbol}:${tfLabel}:fade_long:${low.toFixed(2)}:${high.toFixed(2)}`),
