@@ -155,13 +155,25 @@ function emaStackLabel(ema20, ema50, ema100, ema200) {
 }
 function trendState({ close, ema20, ema50, rsi, atr }) {
     if (close != null && ema20 != null && ema50 != null && rsi != null && atr != null) {
-        const nearEma = Math.abs(close - ema20) < 0.5 * atr;
+        const nearEma20 = Math.abs(close - ema20) < 0.5 * atr;
+
+        // Đo "độ tách" giữa EMA20 và EMA50 để phân biệt trend vs range
+        const emaSep = Math.abs(ema20 - ema50);
+        const tightMAs = emaSep < 0.25 * atr; // MA dính nhau => dễ range
+
+        // Trend (giữ nguyên yêu cầu cấu trúc giá/EMA)
         if (close > ema20 && ema20 > ema50 && rsi >= 55) return "bull";
-        if (close < ema20 && ema20 < ema50 && rsi <= 45) return "bear";
-        if (nearEma && rsi >= 45 && rsi <= 55) return "range";
+
+        // Nới nhẹ bear RSI để tránh kẹt "range" khi EMA đã bear rõ
+        // (Nếu bạn muốn giữ cực strict thì đổi 50 -> 45)
+        if (close < ema20 && ema20 < ema50 && rsi <= 50) return "bear";
+
+        // Range chỉ khi: giá quanh EMA20 + RSI trung tính + MA dính nhau
+        if (nearEma20 && rsi >= 45 && rsi <= 55 && tightMAs) return "range";
     }
     return "neutral";
 }
+
 function volatilityRegime(atr, close) {
     if (!Number.isFinite(atr) || !Number.isFinite(close) || close <= 0) return "normal";
     const pct = atr / close;
