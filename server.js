@@ -113,6 +113,9 @@ app.use("/api/bybit", bybitSnapshotRouter);
 import tradeZonesRoute from "./routes/tradeZones.js";
 app.use("/api/trade-zones", tradeZonesRoute);
 
+import tradeZonesClientRoute from "./routes/tradeZonesClient.js";
+app.use("/api/trade-zones-client", tradeZonesClientRoute);
+
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
