@@ -122,6 +122,9 @@ app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 import tradeZonesClientMultiTFRoute from "./routes/tradeZonesClientMultiTF.js";
 app.use("/api/trade-zones-client-multitf", tradeZonesClientMultiTFRoute);
 
+import tradeZonesClientMultiTFRouteV2 from "./routes/tradeZonesClientMultiTF_v2.js";
+app.use("/api/trade-zones-client-multitf-v2", tradeZonesClientMultiTFRouteV2);
+
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
