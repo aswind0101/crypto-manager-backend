@@ -253,6 +253,129 @@ function applyM5Timing({ confidence, guards, direction, m5Regime }) {
     }
     return { confidence, guards };
 }
+/** ---------- Order readiness helpers (SPEC-aligned) ---------- */
+function mid(low, high) {
+    return (low + high) / 2;
+}
+
+function evalIntoZone(close, zone) {
+    return Number.isFinite(close) && Number.isFinite(zone?.low) && Number.isFinite(zone?.high)
+        ? close >= zone.low && close <= zone.high
+        : false;
+}
+
+/**
+ * Retest triggers (Balanced):
+ *  - SHORT: close < EMA20 AND close < VAH
+ *  - LONG : close > EMA20 AND close > VAL
+ */
+function evalRetestTriggers({ direction, close, zone, ema20, vp }) {
+    const into = evalIntoZone(close, zone);
+
+    let closeConfirm = false;
+    if (direction === "short") {
+        closeConfirm =
+            Number.isFinite(close) &&
+            Number.isFinite(ema20) &&
+            vp?.vah != null &&
+            close < ema20 &&
+            close < vp.vah;
+    } else {
+        closeConfirm =
+            Number.isFinite(close) &&
+            Number.isFinite(ema20) &&
+            vp?.val != null &&
+            close > ema20 &&
+            close > vp.val;
+    }
+
+    const status = into && closeConfirm ? "triggered" : "pending";
+    return { into, closeConfirm, status };
+}
+
+/**
+ * Trend-continuation triggers (Balanced):
+ *  - SHORT: close < EMA20 AND close < POC
+ *  - LONG : close > EMA20 AND close > POC
+ */
+function evalFadeTriggers({ direction, close, zone, ema20, vp }) {
+    const into = evalIntoZone(close, zone);
+
+    let closeConfirm = false;
+    if (direction === "short") {
+        closeConfirm =
+            Number.isFinite(close) &&
+            Number.isFinite(ema20) &&
+            vp?.poc != null &&
+            close < ema20 &&
+            close < vp.poc;
+    } else {
+        closeConfirm =
+            Number.isFinite(close) &&
+            Number.isFinite(ema20) &&
+            vp?.poc != null &&
+            close > ema20 &&
+            close > vp.poc;
+    }
+
+    const status = into && closeConfirm ? "triggered" : "pending";
+    return { into, closeConfirm, status };
+}
+
+/**
+ * Entry plan (deterministic):
+ * - pending + outside zone  => LIMIT at zone mid
+ * - pending + inside zone   => WAIT for close_confirm
+ * - triggered               => MARKET now
+ */
+function buildEntryPlan({ close, zone, status, into, closeConfirm }) {
+    const entryMid = mid(zone.low, zone.high);
+
+    if (status === "triggered") {
+        return {
+            entry_now: true,
+            order_type: "market",
+            suggested_entry: close,
+            note: "Đã vào zone và có close_confirm (Balanced). Có thể vào Market theo close hiện tại.",
+        };
+    }
+
+    if (!into) {
+        return {
+            entry_now: false,
+            order_type: "limit",
+            suggested_entry: entryMid,
+            note: "Chưa chạm zone. Đặt Limit tại giữa zone và chờ price_into_zone + close_confirm.",
+        };
+    }
+
+    // price in zone but not confirmed
+    return {
+        entry_now: false,
+        order_type: "wait",
+        suggested_entry: null,
+        note: closeConfirm
+            ? "Đã có close_confirm nhưng giá không nằm trong zone (hiếm). Kiểm tra dữ liệu nến."
+            : "Giá đã vào zone nhưng chưa có close_confirm. Chờ nến đóng xác nhận.",
+    };
+}
+
+/**
+ * Entry validity: valid until expiresAt AND price not too far from zone (> kFar*ATR).
+ */
+function buildEntryValidity({ close, atr, zone, expiresAt, kFar = 2.0 }) {
+    let far = "ok";
+    if (Number.isFinite(close) && Number.isFinite(atr)) {
+        if (close > zone.high + kFar * atr) far = "above_far";
+        else if (close < zone.low - kFar * atr) far = "below_far";
+    }
+
+    return {
+        valid_until: expiresAt ?? null,
+        far_state: far, // ok | above_far | below_far
+        is_valid: far === "ok",
+    };
+}
 
 /** ---------- Zone builders (SPEC style) ---------- */
 function buildRetestSupplyDemand({
@@ -282,7 +405,11 @@ function buildRetestSupplyDemand({
 
     if (direction === "short") {
         // supply zone centered near max(VAH, EMA50) in downtrend
-        const center = Math.max(vp.vah, ema50 ?? vp.vah);
+        const ema50Dist = Number.isFinite(ema50) ? Math.abs(ema50 - vp.vah) : null;
+        const ema50DistAtr = ema50Dist != null && Number.isFinite(atr) ? ema50Dist / atr : null;
+        const ema50AnchorUsed = ema50DistAtr != null ? ema50DistAtr <= 1.5 : false; // guard: EMA50 gần VAH trong 1.5 ATR
+        const center = ema50AnchorUsed ? Math.max(vp.vah, ema50) : vp.vah;
+
         const low = center - buffer;
         const high = center + buffer;
 
@@ -302,6 +429,14 @@ function buildRetestSupplyDemand({
             (volReg === "high" ? -10 : 0);
 
         ({ confidence } = applyM5Timing({ confidence, guards, direction: "short", m5Regime }));
+        const trig = evalRetestTriggers({ direction: "short", close, zone: { low, high }, ema20, vp });
+        const entry = buildEntryPlan({ close, zone: { low, high }, status: trig.status, into: trig.into, closeConfirm: trig.closeConfirm });
+        const entry_validity = buildEntryValidity({
+            close,
+            atr,
+            zone: { low, high },
+            expiresAt: Date.now() + 2 * 60 * 60 * 1000,
+        });
 
         zones.push({
             id: hashId(`${symbol}:${tfLabel}:retest_short:${low.toFixed(2)}:${high.toFixed(2)}`),
@@ -309,6 +444,9 @@ function buildRetestSupplyDemand({
             tf: tfLabel,
             direction: "short",
             type: "retest_entry",
+            status: trig.status,
+            entry,
+            entry_validity,
             zone: { low, high },
             triggers: [
                 { type: "price_into_zone", rule: "Price retests supply band (VAH/EMA50)" },
@@ -341,6 +479,8 @@ function buildRetestSupplyDemand({
                     atr,
                     ema20: ema20 ?? null,
                     ema50: ema50 ?? null,
+                    ema50AnchorUsed,
+                    ema50DistAtr,
                     val: vp.val,
                     poc: vp.poc,
                     vah: vp.vah,
@@ -354,7 +494,11 @@ function buildRetestSupplyDemand({
         });
     } else {
         // demand zone centered near min(VAL, EMA50) in uptrend
-        const center = Math.min(vp.val, ema50 ?? vp.val);
+        const ema50Dist = Number.isFinite(ema50) ? Math.abs(ema50 - vp.val) : null;
+        const ema50DistAtr = ema50Dist != null && Number.isFinite(atr) ? ema50Dist / atr : null;
+        const ema50AnchorUsed = ema50DistAtr != null ? ema50DistAtr <= 1.5 : false; // guard: EMA50 gần VAL trong 1.5 ATR
+        const center = ema50AnchorUsed ? Math.min(vp.val, ema50) : vp.val;
+
         const low = center - buffer;
         const high = center + buffer;
 
@@ -374,6 +518,14 @@ function buildRetestSupplyDemand({
             (volReg === "high" ? -10 : 0);
 
         ({ confidence } = applyM5Timing({ confidence, guards, direction: "long", m5Regime }));
+        const trig = evalRetestTriggers({ direction: "long", close, zone: { low, high }, ema20, vp });
+        const entry = buildEntryPlan({ close, zone: { low, high }, status: trig.status, into: trig.into, closeConfirm: trig.closeConfirm });
+        const entry_validity = buildEntryValidity({
+            close,
+            atr,
+            zone: { low, high },
+            expiresAt: Date.now() + 2 * 60 * 60 * 1000,
+        });
 
         zones.push({
             id: hashId(`${symbol}:${tfLabel}:retest_long:${low.toFixed(2)}:${high.toFixed(2)}`),
@@ -381,6 +533,9 @@ function buildRetestSupplyDemand({
             tf: tfLabel,
             direction: "long",
             type: "retest_entry",
+            status: trig.status,
+            entry,
+            entry_validity,
             zone: { low, high },
             triggers: [
                 { type: "price_into_zone", rule: "Price retests demand band (VAL/EMA50)" },
@@ -413,6 +568,8 @@ function buildRetestSupplyDemand({
                     atr,
                     ema20: ema20 ?? null,
                     ema50: ema50 ?? null,
+                    ema50AnchorUsed,
+                    ema50DistAtr,
                     val: vp.val,
                     poc: vp.poc,
                     vah: vp.vah,
@@ -477,6 +634,14 @@ function buildFadePOCorEMA20({
             (volReg === "high" ? -10 : 0);
 
         ({ confidence } = applyM5Timing({ confidence, guards, direction: "short", m5Regime }));
+        const trig = evalFadeTriggers({ direction: "short", close, zone: { low, high }, ema20, vp });
+        const entry = buildEntryPlan({ close, zone: { low, high }, status: trig.status, into: trig.into, closeConfirm: trig.closeConfirm });
+        const entry_validity = buildEntryValidity({
+            close,
+            atr,
+            zone: { low, high },
+            expiresAt: Date.now() + 90 * 60 * 1000,
+        });
 
         zones.push({
             id: hashId(`${symbol}:${tfLabel}:fade_short:${low.toFixed(2)}:${high.toFixed(2)}`),
@@ -484,6 +649,9 @@ function buildFadePOCorEMA20({
             tf: tfLabel,
             direction: "short",
             type: "trend_continuation",
+            status: trig.status,
+            entry,
+            entry_validity,
             zone: { low, high },
             triggers: [
                 { type: "price_into_zone", rule: "Price pulls back into fair value band (POC/EMA20)" },
@@ -532,6 +700,14 @@ function buildFadePOCorEMA20({
             (volReg === "high" ? -10 : 0);
 
         ({ confidence } = applyM5Timing({ confidence, guards, direction: "long", m5Regime }));
+        const trig = evalFadeTriggers({ direction: "long", close, zone: { low, high }, ema20, vp });
+        const entry = buildEntryPlan({ close, zone: { low, high }, status: trig.status, into: trig.into, closeConfirm: trig.closeConfirm });
+        const entry_validity = buildEntryValidity({
+            close,
+            atr,
+            zone: { low, high },
+            expiresAt: Date.now() + 90 * 60 * 1000,
+        });
 
         zones.push({
             id: hashId(`${symbol}:${tfLabel}:fade_long:${low.toFixed(2)}:${high.toFixed(2)}`),
@@ -539,6 +715,9 @@ function buildFadePOCorEMA20({
             tf: tfLabel,
             direction: "long",
             type: "trend_continuation",
+            status: trig.status,
+            entry,
+            entry_validity,
             zone: { low, high },
             triggers: [
                 { type: "price_into_zone", rule: "Price pulls back into fair value band (POC/EMA20)" },
