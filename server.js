@@ -116,6 +116,9 @@ app.use("/api/trade-zones", tradeZonesRoute);
 import tradeZonesClientRoute from "./routes/tradeZonesClient.js";
 app.use("/api/trade-zones-client", tradeZonesClientRoute);
 
+app.use(express.json({ limit: "25mb" }));
+app.use(express.urlencoded({ extended: true, limit: "25mb" }));
+
 import tradeZonesClientMultiTFRoute from "./routes/tradeZonesClientMultiTF.js";
 app.use("/api/trade-zones-client-multitf", tradeZonesClientMultiTFRoute);
 
