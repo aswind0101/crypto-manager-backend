@@ -626,3 +626,13 @@ app.post("/api/admin/cleanup-onchain", async (req, res) => {
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server is running on http://localhost:${PORT}`);
 });
+// Start background scheduler (jobs)
+try {
+  const { startScheduler } = require("./jobs/scheduler");
+  startScheduler();
+} catch (e) {
+  console.log("[SCHEDULER] Failed to start scheduler:", e?.message || e);
+}
+// jobs/scheduler.js
+// Job nền đơn giản để kiểm tra hệ thống có chạy background jobs hay không.
+// Không phụ thuộc sàn, không phụ thuộc DB. Chỉ log ra mỗi JOBS_INTERVAL_SECONDS.
