@@ -24,4 +24,5 @@ function startScheduler() {
   }, intervalSeconds * 1000);
 }
 
-module.exports = { startScheduler };
+export { startScheduler };
+
